@@ -3404,7 +3404,7 @@ select info.id,
        estimated_time estimate_end_time,
        actual_distance,
        finish_dur_sec,
-        dt
+       dt
 from (select id,
              shift_id,
              line_id,
@@ -3423,9 +3423,7 @@ from (select id,
               actual_end_time,
              actual_distance,
              (cast(actual_end_time as bigint) - cast(actual_start_time as bigint)) / 1000 finish_dur_sec,
-             date_format(from_utc_timestamp(
-                                 cast(actual_end_time as bigint), 'UTC'),
-                         'yyyy-MM-dd')                                                                dt
+             substr(create_time,0,10) dt
       from ods_transport_task
       where ds = '20250719'
         and is_deleted = '0'

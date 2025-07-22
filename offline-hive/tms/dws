@@ -982,7 +982,7 @@ from (select recent_days,
              sum(if(actual_end_time > estimate_end_time, 1, 0)) trans_finish_delay_count
       from dwd_trade_trans_finish_inc lateral view
           explode(array(7, 30)) tmp as recent_days
-      where dt >= date_add('2025-07-10', -recent_days + 1)
+      where dt >= date_add('2025-07-09', -recent_days + 1)
       group by recent_days,
                shift_id,
                line_id,
