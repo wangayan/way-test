@@ -11,5 +11,6 @@ spark = SparkSession.builder \
 sc = spark.sparkContext
 sc.setLogLevel("info")
 
+
 spark.sql("use tms01;")
 

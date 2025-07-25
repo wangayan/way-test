@@ -12,6 +12,7 @@ sc = spark.sparkContext
 sc.setLogLevel("info")
 date = "20250719"
 
+
 spark.sql("use tms01;")
 
 spark.sql(f"""
