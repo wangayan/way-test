@@ -1,0 +1,107 @@
+use gd;
+
+drop table if exists dwd_instore_path_flow;
+CREATE TABLE dwd_instore_path_flow (
+    `flow_id` STRING COMMENT '流转ID',
+    `user_id` STRING COMMENT '用户ID',
+    `platform_type` STRING COMMENT '终端类型',
+    `source_page_id` STRING COMMENT '来源页ID',
+    `source_page_type` STRING COMMENT '来源页类型',
+    `target_page_id` STRING COMMENT '目标页ID',
+    `target_page_type` STRING COMMENT '目标页类型',
+    `jump_time` TIMESTAMP COMMENT '跳转时间',
+    `stay_duration` INT COMMENT '停留时长(秒)',
+    `shop_id` STRING COMMENT '店铺ID'
+)
+PARTITIONED BY (dt STRING)
+STORED AS PARQUET;
+
+INSERT OVERWRITE TABLE dwd_instore_path_flow PARTITION(dt='20250731')
+SELECT
+    md5(concat(f.user_id, f.jump_time, f.source_page_id)) as flow_id,
+    f.user_id,
+    u.platform_type,
+    f.source_page_id,
+    ps.page_type as source_page_type,
+    f.target_page_id,
+    pt.page_type as target_page_type,
+    f.jump_time,
+    CASE
+        WHEN unix_timestamp(f.jump_time) - unix_timestamp(lag(f.jump_time) OVER (PARTITION BY f.user_id ORDER BY f.jump_time)) < 0 THEN 0
+        WHEN unix_timestamp(f.jump_time) - unix_timestamp(lag(f.jump_time) OVER (PARTITION BY f.user_id ORDER BY f.jump_time)) > 86400 THEN 86400
+        ELSE unix_timestamp(f.jump_time) - unix_timestamp(lag(f.jump_time) OVER (PARTITION BY f.user_id ORDER BY f.jump_time))
+    END as stay_duration,
+    ps.shop_id
+FROM
+    ods_instore_path_flow_inc f
+JOIN
+    ods_user_info_full u ON f.user_id = u.user_id AND f.ds = u.ds
+LEFT JOIN
+    ods_page_base_info_full ps ON f.source_page_id = ps.page_id AND f.ds = ps.ds
+LEFT JOIN
+    ods_page_base_info_full pt ON f.target_page_id = pt.page_id AND f.ds = pt.ds
+WHERE
+    f.ds = '20250731';
+
+
+drop table if exists dwd_wireless_access;
+CREATE TABLE dwd_wireless_access (
+    `access_id` STRING COMMENT '访问ID',
+    `user_id` STRING COMMENT '用户ID',
+    `page_id` STRING COMMENT '页面ID',
+    `page_type` STRING COMMENT '页面类型',
+    `visit_time` TIMESTAMP COMMENT '访问时间',
+    `is_order` BOOLEAN COMMENT '是否下单',
+    `shop_id` STRING COMMENT '店铺ID'
+)
+PARTITIONED BY (dt STRING)
+STORED AS PARQUET;
+
+INSERT OVERWRITE TABLE dwd_wireless_access PARTITION(dt='20250731')
+SELECT
+    md5(concat(w.user_id, w.visit_time, w.page_id)) as access_id,
+    w.user_id,
+    w.page_id,
+    p.page_type,
+    w.visit_time,
+    w.is_order,
+    p.shop_id
+FROM
+    ods_wireless_access_data_inc w
+LEFT JOIN
+    ods_page_base_info_full p ON w.page_id = p.page_id AND w.ds = p.ds
+WHERE
+    w.ds = '20250731';
+
+
+drop table if exists dwd_pc_traffic_source;
+CREATE TABLE dwd_pc_traffic_source (
+    `source_id` STRING COMMENT '来源ID',
+    `user_id` STRING COMMENT '用户ID',
+    `shop_id` STRING COMMENT '店铺ID',
+    `source_page` STRING COMMENT '来源页面',
+    `visit_time` TIMESTAMP COMMENT '访问时间',
+    `entry_page_id` STRING COMMENT '入店页面ID'
+)
+PARTITIONED BY (dt STRING)
+STORED AS PARQUET;
+
+INSERT OVERWRITE TABLE dwd_pc_traffic_source PARTITION(dt='20250731')
+SELECT
+    md5(concat(p.user_id, p.visit_time, p.shop_id)) as source_id,
+    p.user_id,
+    p.shop_id,
+    p.source_page,
+    p.visit_time,
+    FIRST_VALUE(v.page_id) OVER (PARTITION BY p.user_id, p.shop_id ORDER BY p.visit_time) as entry_page_id
+FROM
+    ods_pc_source_base_inc p
+JOIN
+    ods_page_visit_rank_base_inc v ON  p.ds = v.ds
+WHERE
+    p.ds = '20250731';
+
+
+
+
+
