@@ -1,0 +1,148 @@
+use gd;
+
+-- 1. 无线端入店与承接表
+CREATE TABLE IF NOT EXISTS ads_wireless_entry_conversion(
+    stat_date DATE COMMENT '统计日期',
+    page_id STRING COMMENT '页面ID',
+    page_type STRING COMMENT '页面类型',
+    page_name STRING COMMENT '页面名称',
+    shop_id STRING COMMENT '店铺ID',
+    visitor_count BIGINT COMMENT '访客数',
+    order_count BIGINT COMMENT '下单买家数',
+    conversion_rate DECIMAL(10,4) COMMENT '转化率'
+) COMMENT '无线端入店与承接表'
+PARTITIONED BY (ds STRING)
+STORED AS ORC
+TBLPROPERTIES ('orc.compress'='SNAPPY');
+
+-- 2. 页面访问排行表
+CREATE TABLE IF NOT EXISTS ads_page_visit_rank(
+    stat_date DATE COMMENT '统计日期',
+    page_id STRING COMMENT '页面ID',
+    page_type STRING COMMENT '页面类型',
+    page_name STRING COMMENT '页面名称',
+    shop_id STRING COMMENT '店铺ID',
+    visit_count BIGINT COMMENT '访问次数',
+    visitor_count BIGINT COMMENT '访客数',
+    avg_stay_duration DECIMAL(10,2) COMMENT '平均停留时长(秒)',
+    rank INT COMMENT '排名'
+) COMMENT '页面访问排行表'
+PARTITIONED BY (ds STRING)
+STORED AS ORC
+TBLPROPERTIES ('orc.compress'='SNAPPY');
+
+-- 3. 店内路径分析表
+CREATE TABLE IF NOT EXISTS ads_instore_path_analysis(
+    stat_date DATE COMMENT '统计日期',
+    shop_id STRING COMMENT '店铺ID',
+    source_page_id STRING COMMENT '来源页面ID',
+    source_page_type STRING COMMENT '来源页面类型',
+    source_page_name STRING COMMENT '来源页面名称',
+    target_page_id STRING COMMENT '去向页面ID',
+    target_page_type STRING COMMENT '去向页面类型',
+    target_page_name STRING COMMENT '去向页面名称',
+    jump_count BIGINT COMMENT '跳转次数',
+    visitor_count BIGINT COMMENT '访客数',
+    order_count BIGINT COMMENT '下单数'
+) COMMENT '店内路径分析表'
+PARTITIONED BY (ds STRING)
+STORED AS ORC
+TBLPROPERTIES ('orc.compress'='SNAPPY');
+
+-- 4. PC端流量入口表
+CREATE TABLE IF NOT EXISTS ads_pc_traffic_source(
+    stat_date DATE COMMENT '统计日期',
+    shop_id STRING COMMENT '店铺ID',
+    source_page STRING COMMENT '来源页面URL',
+    source_domain STRING COMMENT '来源域名',
+    visitor_count BIGINT COMMENT '访客数',
+    visit_count BIGINT COMMENT '访问次数',
+    source_rank INT COMMENT '来源排名',
+    percentage DECIMAL(10,4) COMMENT '来源占比'
+) COMMENT 'PC端流量入口表'
+PARTITIONED BY (ds STRING)
+STORED AS ORC
+TBLPROPERTIES ('orc.compress'='SNAPPY');
+
+
+SET hivevar:bizdate=20250730;
+
+
+INSERT OVERWRITE TABLE ads_wireless_entry_conversion PARTITION(ds='${bizdate}')
+SELECT
+    DATE(visit_time) AS stat_date,
+    w.page_id,
+    p.page_type,
+    p.page_name,
+    p.shop_id,
+    COUNT(DISTINCT w.user_id) AS visitor_count,
+    COUNT(DISTINCT CASE WHEN w.is_order = 1 THEN w.user_id END) AS order_count,
+    ROUND(COUNT(DISTINCT CASE WHEN w.is_order = 1 THEN w.user_id END) /
+          COUNT(DISTINCT w.user_id), 4) AS conversion_rate
+FROM dwd_wireless_access_data_inc w
+JOIN dwd_page_base_info_full p ON w.page_id = p.page_id
+WHERE w.ds = '${bizdate}' AND p.ds = '${bizdate}'
+GROUP BY DATE(visit_time), w.page_id, p.page_type, p.page_name, p.shop_id;
+
+-- 2. 页面访问排行指标
+INSERT OVERWRITE TABLE ads_page_visit_rank PARTITION(ds='${bizdate}')
+SELECT
+    r.stat_date,
+    r.page_id,
+    p.page_type,
+    p.page_name,
+    p.shop_id,
+    r.visit_count,
+    COUNT(DISTINCT a.user_id) AS visitor_count,
+    ROUND(AVG(a.stay_duration), 2) AS avg_stay_duration,
+    RANK() OVER(PARTITION BY r.stat_date, p.shop_id, p.page_type ORDER BY r.visit_count DESC) AS rank
+FROM dwd_page_visit_rank_base_inc r
+JOIN dwd_page_base_info_full p ON r.page_id = p.page_id
+LEFT JOIN (
+    SELECT
+        page_id,
+        user_id,
+        DATEDIFF(MAX(visit_time), MIN(visit_time)) AS stay_duration
+    FROM dwd_wireless_access_data_inc
+    WHERE ds = '${bizdate}'
+    GROUP BY page_id, user_id
+) a ON r.page_id = a.page_id
+WHERE r.ds = '${bizdate}' AND p.ds = '${bizdate}'
+GROUP BY r.stat_date, r.page_id, p.page_type, p.page_name, p.shop_id, r.visit_count;
+
+-- 3. 店内路径分析指标
+INSERT OVERWRITE TABLE ads_instore_path_analysis PARTITION(ds='${bizdate}')
+SELECT
+    DATE(f.jump_time) AS stat_date,
+    p1.shop_id,
+    f.source_page_id,
+    p1.page_type AS source_page_type,
+    p1.page_name AS source_page_name,
+    f.target_page_id,
+    p2.page_type AS target_page_type,
+    p2.page_name AS target_page_name,
+    COUNT(*) AS jump_count,
+    COUNT(DISTINCT f.user_id) AS visitor_count,
+    COUNT(DISTINCT CASE WHEN w.is_order = 1 THEN f.user_id END) AS order_count
+FROM dwd_instore_path_flow_inc f
+JOIN dwd_page_base_info_full p1 ON f.source_page_id = p1.page_id
+JOIN dwd_page_base_info_full p2 ON f.target_page_id = p2.page_id
+LEFT JOIN dwd_wireless_access_data_inc w ON f.user_id = w.user_id AND w.is_order = 1
+WHERE f.ds = '${bizdate}' AND p1.ds = '${bizdate}' AND p2.ds = '${bizdate}'
+GROUP BY DATE(f.jump_time), p1.shop_id, f.source_page_id, p1.page_type, p1.page_name,
+         f.target_page_id, p2.page_type, p2.page_name;
+
+-- 4. PC端流量入口指标
+INSERT OVERWRITE TABLE ads_pc_traffic_source PARTITION(ds='${bizdate}')
+SELECT
+    DATE(p.visit_time) AS stat_date,
+    p.shop_id,
+    p.source_page,
+    parse_url(p.source_page, 'HOST') AS source_domain,
+    COUNT(DISTINCT p.user_id) AS visitor_count,
+    COUNT(*) AS visit_count,
+    RANK() OVER(PARTITION BY DATE(p.visit_time), p.shop_id ORDER BY COUNT(DISTINCT p.user_id) DESC) AS source_rank,
+    ROUND(COUNT(DISTINCT p.user_id) / SUM(COUNT(DISTINCT p.user_id)) OVER(PARTITION BY DATE(p.visit_time), p.shop_id), 4) AS percentage
+FROM dwd_pc_source_base_inc p
+WHERE p.ds = '${bizdate}'
+GROUP BY DATE(p.visit_time), p.shop_id, p.source_page;
