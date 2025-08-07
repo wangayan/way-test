@@ -1,761 +1,290 @@
-use gd01;
+use gmall_work_01;
 
--- 商品维度表（整合product_spu和product_sku）
-CREATE TABLE dim_product (
-    product_sk BIGINT COMMENT '商品代理键',
-    sku_id BIGINT COMMENT 'SKU ID(自然键)',
-    sku_code STRING COMMENT 'SKU编码',
-    sku_name STRING COMMENT 'SKU名称(从specs中提取)',
-    specs MAP<STRING,STRING> COMMENT '规格属性(key-value形式)',
-    spu_id BIGINT COMMENT 'SPU ID',
-    spu_code STRING COMMENT 'SPU编码',
-    spu_name STRING COMMENT 'SPU名称',
-    description STRING COMMENT '商品描述',
-    category_id INT COMMENT '类目ID',
-    category_name STRING COMMENT '类目名称',
-    parent_category_id INT COMMENT '父类目ID',
-    parent_category_name STRING COMMENT '父类目名称',
-    category_level TINYINT COMMENT '类目级别(1-一级 2-二级 3-三级)',
-    brand_id INT COMMENT '品牌ID',
-    price DECIMAL(10,2) COMMENT '销售价',
-    cost_price DECIMAL(10,2) COMMENT '成本价',
-    price_range STRING COMMENT '价格带区间',
-    is_promotion BOOLEAN COMMENT '是否促销商品',
-    promotion_type STRING COMMENT '促销类型',
-    stock INT COMMENT '库存',
-    warning_stock INT COMMENT '库存预警值',
-    main_image_url STRING COMMENT '主图URL',
-    status TINYINT COMMENT '状态(0-禁用 1-启用)',
-    online_time TIMESTAMP COMMENT '上架时间',
-    offline_time TIMESTAMP COMMENT '下架时间',
-    effective_date TIMESTAMP COMMENT '生效日期(SCD用)',
-    expiry_date TIMESTAMP COMMENT '失效日期(SCD用)',
-    current_flag BOOLEAN COMMENT '当前有效标志',
-    version_number INT COMMENT '版本号',
-    create_time TIMESTAMP COMMENT '创建时间',
-    etl_date DATE COMMENT 'ETL处理日期'
-) COMMENT '商品维度表(缓慢变化维)'
-PARTITIONED BY (ds STRING)
-STORED AS PARQUET;
+-- 商品维度表（核心维度）
+drop table if exists dim_item;
+CREATE TABLE dim_item (
+        item_id BIGINT PRIMARY KEY COMMENT '商品ID',
+        item_name VARCHAR(255) NOT NULL COMMENT '商品名称',
+        category_id INT NOT NULL COMMENT '叶子类目ID',
+        category_name VARCHAR(100) NOT NULL COMMENT '叶子类目名称',
+        parent_category_id INT COMMENT '父类目ID',
+        parent_category_name VARCHAR(100) COMMENT '父类目名称',
+        price DECIMAL(10,2) NOT NULL COMMENT '商品价格',
+        is_active TINYINT(1) DEFAULT 1 COMMENT '是否在售',
+        etl_time DATETIME NOT NULL COMMENT 'ETL时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品维度表';
 
--- 用户维度表
-CREATE TABLE dim_user (
-    user_sk BIGINT COMMENT '用户代理键',
-    user_id BIGINT COMMENT '用户ID(自然键)',
-    username STRING COMMENT '用户名',
-    gender TINYINT COMMENT '性别(0-未知 1-男 2-女)',
-    birthday DATE COMMENT '生日',
-    age INT COMMENT '年龄(根据生日计算)',
-    age_range STRING COMMENT '年龄段(如18-25,26-35等)',
-    phone STRING COMMENT '手机号',
-    email STRING COMMENT '邮箱',
-    user_level TINYINT COMMENT '会员等级(1-5)',
-    user_level_name STRING COMMENT '会员等级名称',
-    register_time TIMESTAMP COMMENT '注册时间',
-    register_ip STRING COMMENT '注册IP',
-    register_channel STRING COMMENT '注册来源',
-    last_login_time TIMESTAMP COMMENT '最后登录时间',
-    status TINYINT COMMENT '状态(0-禁用 1-正常)',
-    is_new_user BOOLEAN COMMENT '是否新用户(1年内注册)',
-    effective_date TIMESTAMP COMMENT '生效日期(SCD用)',
-    expiry_date TIMESTAMP COMMENT '失效日期(SCD用)',
-    current_flag BOOLEAN COMMENT '当前有效标志',
-    version_number INT COMMENT '版本号',
-    create_time TIMESTAMP COMMENT '创建时间',
-    etl_date DATE COMMENT 'ETL处理日期'
-) COMMENT '用户维度表(缓慢变化维)'
-PARTITIONED BY (ds STRING)
-STORED AS PARQUET;
-
--- 地区维度表（基于用户行为日志中的地区信息）
-CREATE TABLE dim_region (
-    region_sk BIGINT COMMENT '地区代理键',
-    province STRING COMMENT '省份',
-    city STRING COMMENT '城市',
-    district STRING COMMENT '区县',
-    region_code STRING COMMENT '行政区划代码(模拟)',
-    province_code STRING COMMENT '省份代码(模拟)',
-    city_code STRING COMMENT '城市代码(模拟)',
-    district_code STRING COMMENT '区县代码(模拟)',
-    region_level TINYINT COMMENT '地区级别(1-省 2-市 3-区)',
-    parent_region_sk BIGINT COMMENT '父地区代理键',
-    is_active BOOLEAN COMMENT '是否活跃(有用户行为)',
-    create_time TIMESTAMP COMMENT '创建时间',
-    etl_date DATE COMMENT 'ETL处理日期'
-) COMMENT '地区维度表'
-PARTITIONED BY (ds STRING)
-STORED AS PARQUET;
-
-
-CREATE TABLE dim_date (
-    date_sk INT COMMENT '日期代理键',
-    actual_date DATE COMMENT '实际日期',
-    day_of_week INT COMMENT '星期几(1-7)',
-    day_name STRING COMMENT '星期名称(周一等)',
-    day_of_month INT COMMENT '当月第几天',
-    day_of_year INT COMMENT '当年第几天',
-    week_of_year INT COMMENT '当年第几周',
-    month_sk INT COMMENT '月份代理键',
-    month_name STRING COMMENT '月份名称',
-    month_of_year INT COMMENT '当年第几月',
-    quarter_sk INT COMMENT '季度代理键',
-    quarter_name STRING COMMENT '季度名称(Q1等)',
-    quarter_of_year INT COMMENT '当年第几季',
-    year INT COMMENT '年份',
-    is_weekend BOOLEAN COMMENT '是否周末',
-    is_holiday BOOLEAN COMMENT '是否假日',
-    holiday_name STRING COMMENT '假日名称',
-    is_workday BOOLEAN COMMENT '是否工作日',
-    season STRING COMMENT '季节(春夏秋冬)',
-    financial_period STRING COMMENT '财年期间',
-    create_time TIMESTAMP COMMENT '创建时间'
-) COMMENT '时间维度表'
-STORED AS PARQUET;
-
+-- 类目维度表（支持层级分析）
+drop table if exists dim_category;
 CREATE TABLE dim_category (
-    category_sk BIGINT COMMENT '类目代理键',
-    category_id INT COMMENT '类目ID(自然键)',
-    category_name STRING COMMENT '类目名称',
+    category_id INT PRIMARY KEY COMMENT '类目ID',
+    category_name VARCHAR(100) NOT NULL COMMENT '类目名称',
+    level TINYINT NOT NULL COMMENT '类目层级(1-一级 2-二级 3-叶子)',
     parent_id INT COMMENT '父类目ID',
-    level TINYINT COMMENT '级别(1-一级 2-二级 3-三级)',
-    full_path STRING COMMENT '完整类目路径',
-    sort_order INT COMMENT '排序值',
-    status TINYINT COMMENT '状态(0-禁用 1-启用)',
-    effective_date TIMESTAMP COMMENT '生效日期(SCD用)',
-    expiry_date TIMESTAMP COMMENT '失效日期(SCD用)',
-    current_flag BOOLEAN COMMENT '当前有效标志',
-    version_number INT COMMENT '版本号',
-    create_time TIMESTAMP COMMENT '创建时间',
-    etl_date DATE COMMENT 'ETL处理日期'
-) COMMENT '类目维度表(缓慢变化维)'
-PARTITIONED BY (ds STRING)
-STORED AS PARQUET;
+    path VARCHAR(255) COMMENT '类目路径',
+    etl_time DATETIME NOT NULL COMMENT 'ETL时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='类目维度表';
+
+-- 用户维度表（新老买家标识）？？
+CREATE TABLE dim_user (
+        user_id BIGINT PRIMARY KEY COMMENT '用户ID',
+        user_name VARCHAR(100) COMMENT '用户名',
+        reg_date DATE NOT NULL COMMENT '注册日期',
+        is_vip TINYINT(1) DEFAULT 0 COMMENT '是否VIP',
+        last_payment_date DATE COMMENT '最近支付日期',
+        etl_time DATETIME NOT NULL COMMENT 'ETL时间',
+        KEY idx_reg_date (reg_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户维度表';
+
+-- 时间维度表（支持多粒度分析）
+CREATE TABLE dim_date (
+        date_key INT PRIMARY KEY COMMENT '日期键YYYYMMDD',
+        date DATE NOT NULL COMMENT '日期',
+        day TINYINT NOT NULL COMMENT '日',
+        month TINYINT NOT NULL COMMENT '月',
+        year SMALLINT NOT NULL COMMENT '年',
+        week_of_year TINYINT COMMENT '年内周序',
+        quarter TINYINT COMMENT '季度',
+        is_weekend TINYINT(1) COMMENT '是否周末',
+        etl_time DATETIME NOT NULL COMMENT 'ETL时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='时间维度表';
+
+-- 终端维度表
+
+CREATE TABLE dim_terminal (
+    terminal_code VARCHAR(20) PRIMARY KEY COMMENT '终端代码',
+    terminal_name VARCHAR(50) NOT NULL COMMENT '终端名称',
+    device_type ENUM('PC','Mobile','Tablet') COMMENT '设备类型',
+    etl_time DATETIME NOT NULL COMMENT 'ETL时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='终端维度表';
+
+-- 活动维度表
+CREATE TABLE dim_activity (
+    activity_id VARCHAR(20) PRIMARY KEY COMMENT '活动ID',
+    activity_name VARCHAR(100) NOT NULL COMMENT '活动名称',
+    activity_type ENUM('NORMAL','PRESALE','JUHUASUAN') NOT NULL COMMENT '活动类型',
+    presale_stage VARCHAR(32) DEFAULT NULL COMMENT '预售阶段',
+    start_date DATE NOT NULL COMMENT '活动开始日期',
+    end_date DATE NOT NULL COMMENT '活动结束日期',
+    etl_time DATETIME NOT NULL COMMENT 'ETL时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='活动维度表';
+
+-- 支付方式维度表
+CREATE TABLE dim_payment_method (
+    method_id VARCHAR(20) PRIMARY KEY COMMENT '支付方式ID',
+    method_name VARCHAR(100) NOT NULL COMMENT '支付方式名称',
+    is_online TINYINT(1) DEFAULT 1 COMMENT '是否在线支付',
+    etl_time DATETIME NOT NULL COMMENT 'ETL时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='支付方式维度表';
+
+CREATE TABLE dim_activity_type (
+    activity_type VARCHAR(20) PRIMARY KEY COMMENT '活动类型',
+    activity_name VARCHAR(100) NOT NULL COMMENT '活动名称',
+    etl_time DATETIME NOT NULL COMMENT 'ETL时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='活动类型维度表';
 
 
-INSERT OVERWRITE TABLE dim_product PARTITION(ds='${exec_date}')
-WITH
-latest_products AS (
-    SELECT
-        sku.sku_id,
-        sku.sku_code,
-        sku.specs,
-        spu.spu_id,
-        spu.spu_code,
-        spu.spu_name,
-        spu.description,
-        spu.category_id,
-        cat.category_name,
-        cat.parent_id,
-        parent_cat.category_name as parent_category_name,
-        cat.level as category_level,
-        spu.brand_id,
-        sku.price,
-        sku.cost_price,
-        spu.price_range,
-        spu.is_promotion,
-        spu.promotion_type,
-        sku.stock,
-        sku.warning_stock,
-        sku.image_url as main_image_url,
-        sku.status,
-        spu.online_time,
-        spu.offline_time,
-        sku.create_time,
-        sku.update_time,
-        CURRENT_TIMESTAMP as etl_time
-    FROM ods_product_sku_full sku
-    JOIN ods_product_spu_full spu ON sku.spu_id = spu.spu_id
-    JOIN ods_category_info_full cat ON spu.category_id = cat.category_id
-    LEFT JOIN ods_category_info_full parent_cat ON cat.parent_id = parent_cat.category_id
-    WHERE sku.ds = '${exec_date}' AND spu.ds = '${exec_date}'
-    AND cat.ds = '${exec_date}' AND (parent_cat.ds = '${exec_date}' OR parent_cat.ds IS NULL)
-),
 
-current_dim AS (
-    SELECT * FROM dim_product WHERE current_flag = TRUE AND ds = '${yesterday}'
-),
-
-max_sk AS (
-    SELECT COALESCE(MAX(product_sk), 0) as product_sk_max FROM current_dim
-)
-
--- 现有记录更新失效日期
+-- 填充商品维度表（基于ODS事件中的商品ID范围）
+INSERT INTO dim_item (item_id, item_name, category_id, category_name, parent_category_id, parent_category_name, price, etl_time)
 SELECT
-    cd.product_sk,
-    cd.sku_id,
-    cd.sku_code,
-    cd.sku_name,
-    cd.specs,
-    cd.spu_id,
-    cd.spu_code,
-    cd.spu_name,
-    cd.description,
-    cd.category_id,
-    cd.category_name,
-    cd.parent_category_id,
-    cd.parent_category_name,
-    cd.category_level,
-    cd.brand_id,
-    cd.price,
-    cd.cost_price,
-    cd.price_range,
-    cd.is_promotion,
-    cd.promotion_type,
-    cd.stock,
-    cd.warning_stock,
-    cd.main_image_url,
-    cd.status,
-    cd.online_time,
-    cd.offline_time,
-    cd.effective_date,
-    CASE
-        WHEN cd.product_sk IS NOT NULL AND (
-            COALESCE(lp.price,0) != COALESCE(cd.price,0) OR
-            COALESCE(lp.status,-1) != COALESCE(cd.status,-1)
-        THEN lp.etl_time
-        ELSE cd.expiry_date
-    END as expiry_date,
-    CASE
-        WHEN cd.product_sk IS NOT NULL AND (
-            COALESCE(lp.price,0) != COALESCE(cd.price,0) OR
-            COALESCE(lp.status,-1) != COALESCE(cd.status,-1)
-        THEN FALSE
-        ELSE cd.current_flag
-    END as current_flag,
-    cd.version_number,
-    cd.create_time,
-    COALESCE(lp.etl_time, cd.etl_date) as etl_date
-FROM current_dim cd
-LEFT JOIN latest_products lp ON cd.sku_id = lp.sku_id
+    item_id,
+    CONCAT('商品', item_id),
+    FLOOR(RAND()*100)+1,  -- 随机分配类目
+    CONCAT('类目', FLOOR(RAND()*100)+1),
+    FLOOR(RAND()*10)+1,
+    CONCAT('父类', FLOOR(RAND()*10)+1),
+    ROUND(RAND()*500+10, 2),  -- 价格范围10-510
+    NOW()
+FROM (
+         SELECT DISTINCT item_id
+         FROM ods_event_item_visit  -- 任意ODS表获取商品ID
+         LIMIT 2000
+     ) t;
 
-UNION ALL
 
+-- 修复后的数据插入脚本
+INSERT INTO dim_category (category_id, category_name, level, parent_id, path, etl_time)
 SELECT
-    ROW_NUMBER() OVER (ORDER BY lp.sku_id) + ms.product_sk_max as product_sk,
-    lp.sku_id,
-    lp.sku_code,
-    get_json_object(lp.specs, '$.name') as sku_name,
-    str_to_map(REGEXP_REPLACE(REGEXP_REPLACE(lp.specs, '[{"}]', ''), ',', ':') as specs,
-    lp.spu_id,
-    lp.spu_code,
-    lp.spu_name,
-    lp.description,
-    lp.category_id,
-    lp.category_name,
-    lp.parent_id,
-    lp.parent_category_name,
-    lp.category_level,
-    lp.brand_id,
-    lp.price,
-    lp.cost_price,
-    lp.price_range,
-    lp.is_promotion,
-    lp.promotion_type,
-    lp.stock,
-    lp.warning_stock,
-    lp.main_image_url,
-    lp.status,
-    lp.online_time,
-    lp.offline_time,
-    lp.etl_time as effective_date,
-    NULL as expiry_date,
-    TRUE as current_flag,
-    CASE WHEN cd.product_sk IS NOT NULL THEN cd.version_number + 1 ELSE 1 END as version_number,
-    lp.create_time,
-    lp.update_time,
-    lp.etl_time as etl_date
-FROM latest_products lp
-LEFT JOIN current_dim cd ON lp.sku_id = cd.sku_id
-CROSS JOIN max_sk ms
-WHERE cd.product_sk IS NULL OR (
-    COALESCE(lp.price,0) != COALESCE(cd.price,0) OR
-    COALESCE(lp.status,-1) != COALESCE(cd.status,-1)
-);
+    category_id,
+    category_name,
+    level,
+    parent_id,
+    path,
+    NOW()
+FROM (
+         -- Level 1: Root categories
+         SELECT
+             100 + root_id AS category_id,
+             CONCAT('Root Category ', root_id) AS category_name,
+             1 AS level,
+             NULL AS parent_id,
+             CAST(100 + root_id AS CHAR) AS path,
+             root_id
+         FROM (
+                  SELECT 1 AS root_id UNION SELECT 2 UNION SELECT 3
+              ) root_cat
 
-INSERT OVERWRITE TABLE dim_user PARTITION(ds='${exec_date}')
-WITH
-latest_users AS (
-    SELECT
-        user_id,
-        username,
-        gender,
-        birthday,
-        phone,
-        email,
-        user_level,
-        register_time,
-        register_ip,
-        source_channel as register_channel,
-        last_login_time,
-        status,
-        create_time,
-        CURRENT_TIMESTAMP as etl_time
-    FROM ods_user_info_full
-    WHERE ds = '${exec_date}'
-),
+         UNION ALL
 
-current_dim AS (
-    SELECT * FROM dim_user WHERE current_flag = TRUE AND ds = '${yesterday}'
-),
+         -- Level 2: Subcategories
+         SELECT
+             1000 + root_id * 10 + sub_id AS category_id,
+             CONCAT('Subcategory ', root_id, '-', sub_id) AS category_name,
+             2 AS level,
+             100 + root_id AS parent_id,
+             CONCAT(100 + root_id, '.', 1000 + root_id * 10 + sub_id) AS path,
+             sub_id
+         FROM (
+                  SELECT root_id, sub_id
+                  FROM (SELECT 1 AS root_id UNION SELECT 2 UNION SELECT 3) roots
+                           CROSS JOIN (SELECT 1 AS sub_id UNION SELECT 2) subs
+              ) sub_cat
+     ) all_categories;
 
-max_sk AS (
-    SELECT COALESCE(MAX(user_sk), 0) as user_sk_max FROM current_dim
-)
-
--- 现有记录更新失效日期
+-- 填充用户维度（基于ODS中的用户ID）
+INSERT INTO dim_user (user_id, user_name, reg_date, is_vip, last_payment_date, etl_time)
 SELECT
-    cd.user_sk,
-    cd.user_id,
-    cd.username,
-    cd.gender,
-    cd.birthday,
-    cd.age,
-    cd.age_range,
-    cd.phone,
-    cd.email,
-    cd.user_level,
-    cd.user_level_name,
-    cd.register_time,
-    cd.register_ip,
-    cd.register_channel,
-    cd.last_login_time,
-    cd.status,
-    cd.is_new_user,
-    cd.effective_date,
-    CASE
-        WHEN cd.user_sk IS NOT NULL AND (
-            COALESCE(lu.phone,'') != COALESCE(cd.phone,'') OR
-            COALESCE(lu.user_level,-1) != COALESCE(cd.user_level,-1))
-        THEN lu.etl_time
-        ELSE cd.expiry_date
-    END as expiry_date,
-    CASE
-        WHEN cd.user_sk IS NOT NULL AND (
-            COALESCE(lu.phone,'') != COALESCE(cd.phone,'') OR
-            COALESCE(lu.user_level,-1) != COALESCE(cd.user_level,-1))
-        THEN FALSE
-        ELSE cd.current_flag
-    END as current_flag,
-    cd.version_number,
-    cd.create_time,
-    COALESCE(lu.etl_time, cd.etl_date) as etl_date
-FROM current_dim cd
-LEFT JOIN latest_users lu ON cd.user_id = lu.user_id
+    user_id,
+    CONCAT('用户', user_id),
+    DATE_SUB(CURDATE(), INTERVAL FLOOR(RAND()*1000) DAY),
+    IF(RAND()>0.7, 1, 0),
+    IF(RAND()>0.3, DATE_SUB(CURDATE(), INTERVAL FLOOR(RAND()*100) DAY), NULL),
+    NOW()
+FROM (
+         SELECT DISTINCT user_id
+         FROM ods_event_item_visit
+         WHERE user_id IS NOT NULL
+         LIMIT 5000
+     ) t;
 
-UNION ALL
-
--- 新增或变更记录
+-- 填充时间维度（覆盖数据时间范围）
+INSERT INTO dim_date (date_key, date, day, month, year, week_of_year, quarter, is_weekend, etl_time)
 SELECT
-    ROW_NUMBER() OVER (ORDER BY lu.user_id) + ms.user_sk_max as user_sk,
-    lu.user_id,
-    lu.username,
-    lu.gender,
-    lu.birthday,
-    FLOOR(DATEDIFF(CURRENT_DATE, lu.birthday)/365) as age,
-    CASE
-        WHEN DATEDIFF(CURRENT_DATE, lu.birthday)/365 < 18 THEN '0-17'
-        WHEN DATEDIFF(CURRENT_DATE, lu.birthday)/365 BETWEEN 18 AND 25 THEN '18-25'
-        WHEN DATEDIFF(CURRENT_DATE, lu.birthday)/365 BETWEEN 26 AND 35 THEN '26-35'
-        WHEN DATEDIFF(CURRENT_DATE, lu.birthday)/365 BETWEEN 36 AND 45 THEN '36-45'
-        ELSE '46+'
-    END as age_range,
-    lu.phone,
-    lu.email,
-    lu.user_level,
-    CASE lu.user_level
-        WHEN 1 THEN '普通会员'
-        WHEN 2 THEN '白银会员'
-        WHEN 3 THEN '黄金会员'
-        WHEN 4 THEN '白金会员'
-        WHEN 5 THEN '钻石会员'
-        ELSE '未知'
-    END as user_level_name,
-    lu.register_time,
-    lu.register_ip,
-    lu.register_channel,
-    lu.last_login_time,
-    lu.status,
-    DATEDIFF(CURRENT_DATE, lu.register_time) < 365 as is_new_user,
-    lu.etl_time as effective_date,
-    NULL as expiry_date,
-    TRUE as current_flag,
-    CASE WHEN cd.user_sk IS NOT NULL THEN cd.version_number + 1 ELSE 1 END as version_number,
-    lu.create_time,
-    lu.update_time,
-    lu.etl_time as etl_date
-FROM latest_users lu
-LEFT JOIN current_dim cd ON lu.user_id = cd.user_id
-CROSS JOIN max_sk ms
-WHERE cd.user_sk IS NULL OR (
-    COALESCE(lu.phone,'') != COALESCE(cd.phone,'') OR
-    COALESCE(lu.user_level,-1) != COALESCE(cd.user_level,-1)
-);
+    DATE_FORMAT(dt, '%Y%m%d'),
+    dt,
+    DAY(dt),
+    MONTH(dt),
+    YEAR(dt),
+    WEEK(dt, 3),
+    QUARTER(dt),
+    DAYOFWEEK(dt) IN (1,7),
+    NOW()
+FROM (
+         SELECT DATE_SUB(CURDATE(), INTERVAL n DAY) dt
+         FROM (
+                  SELECT a.N + b.N * 10 + c.N * 100 AS n
+                  FROM
+                      (SELECT 0 AS N UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) a,
+                      (SELECT 0 AS N UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) b,
+                      (SELECT 0 AS N UNION SELECT 1) c
+                  ORDER BY n
+              ) seq
+         WHERE n BETWEEN 0 AND 400  -- 覆盖400天范围
+     ) dates;
 
-INSERT OVERWRITE TABLE dim_region PARTITION(ds='${exec_date}')
-WITH
-address_regions AS (
-    SELECT
-        province,
-        city,
-        district,
-        CONCAT(
-            LPAD(CAST((RAND() * 30 + 1) AS INT), 2, '0'),  -- 省份代码
-            LPAD(CAST((RAND() * 20 + 1) AS INT), 2, '0'),  -- 城市代码
-            LPAD(CAST((RAND() * 10 + 1) AS INT), 2, '0')   -- 区县代码
-        ) as region_code,
-        COUNT(*) as address_count,
-        CURRENT_TIMESTAMP as etl_time
-    FROM ods_user_address_full
-    WHERE ds = '${exec_date}'
-    GROUP BY province, city, district
-),
 
-behavior_regions AS (
-    SELECT
-        province,
-        city,
-        NULL as district,
-        COUNT(*) as behavior_count,
-        CURRENT_TIMESTAMP as etl_time
-    FROM ods_user_behavior_log_inc
-    WHERE ds = '${exec_date}' AND province IS NOT NULL AND city IS NOT NULL
-    GROUP BY province, city
-),
 
-region_source AS (
-    SELECT
-        COALESCE(a.province, b.province) as province,
-        COALESCE(a.city, b.city) as city,
-        a.district,
-        COALESCE(a.region_code, CONCAT(
-            LPAD(CAST((RAND() * 30 + 1) AS INT), 2, '0'),
-            LPAD(CAST((RAND() * 20 + 1) AS INT), 2, '0'),
-            '00'
-        )) as region_code,
-        COALESCE(a.address_count, 0) + COALESCE(b.behavior_count, 0) as activity_count,
-        CURRENT_TIMESTAMP as etl_time
-    FROM address_regions a
-    FULL OUTER JOIN behavior_regions b ON a.province = b.province AND a.city = b.city
-),
-
-current_dim AS (
-    SELECT * FROM dim_region WHERE ds = '${yesterday}'
-),
-
-max_sk AS (
-    SELECT COALESCE(MAX(region_sk), 0) as region_sk_max FROM current_dim
-),
-
-region_hierarchy AS (
-    -- 省份级别
-    SELECT
-        province,
-        NULL as city,
-        NULL as district,
-        CONCAT(SUBSTR(MIN(region_code), 1, 2), '0000') as region_code,
-        1 as region_level,
-        NULL as parent_region_sk,
-        SUM(activity_count) as activity_count,
-        MAX(etl_time) as etl_time
-    FROM region_source
-    GROUP BY province
-
-    UNION ALL
-
-    -- 城市级别
-    SELECT
-        province,
-        city,
-        NULL as district,
-        MIN(region_code) as region_code,
-        2 as region_level,
-        NULL as parent_region_sk,
-        SUM(activity_count) as activity_count,
-        MAX(etl_time) as etl_time
-    FROM region_source
-    WHERE city IS NOT NULL
-    GROUP BY province, city
-
-    UNION ALL
-
-    -- 区县级别
-    SELECT
-        province,
-        city,
-        district,
-        region_code,
-        3 as region_level,
-        NULL as parent_region_sk,
-        activity_count,
-        etl_time
-    FROM region_source
-    WHERE district IS NOT NULL
-)
-
+INSERT INTO dim_payment_method (method_id, method_name, is_online, etl_time)
 SELECT
-    ROW_NUMBER() OVER (ORDER BY rh.region_code) + ms.region_sk_max as region_sk,
-    rh.province,
-    rh.city,
-    rh.district,
-    rh.region_code,
-    SUBSTR(rh.region_code, 1, 2) as province_code,
-    CASE WHEN rh.region_level >= 2 THEN SUBSTR(rh.region_code, 3, 2) ELSE NULL END as city_code,
-    CASE WHEN rh.region_level = 3 THEN SUBSTR(rh.region_code, 5, 2) ELSE NULL END as district_code,
-    rh.region_level,
-    CASE
-        WHEN rh.region_level = 2 THEN (
-            SELECT dr.region_sk FROM dim_region dr
-            WHERE dr.ds = '${yesterday}' AND dr.province = rh.province
-            AND dr.city IS NULL AND dr.region_level = 1 LIMIT 1
-        )
-        WHEN rh.region_level = 3 THEN (
-            SELECT dr.region_sk FROM dim_region dr
-            WHERE dr.ds = '${yesterday}' AND dr.province = rh.province
-            AND dr.city = rh.city AND dr.region_level = 2 LIMIT 1
-        )
-        ELSE NULL
-    END as parent_region_sk,
-    rh.activity_count > 0 as is_active,
-    CURRENT_TIMESTAMP as create_time,
-    CURRENT_TIMESTAMP as update_time,
-    rh.etl_time as etl_date
-FROM region_hierarchy rh
-CROSS JOIN max_sk ms
-WHERE NOT EXISTS (
-    SELECT 1 FROM current_dim cd
-    WHERE cd.province = rh.province
-    AND (cd.city = rh.city OR (cd.city IS NULL AND rh.city IS NULL))
-    AND cd.district = rh.district OR (cd.district IS NULL AND rh.district IS NULL))
-    AND cd.ds = '${yesterday}'
-);
+    DISTINCT payment_method AS method_id,
+             CASE payment_method
+                 WHEN 'ALIPAY' THEN '支付宝'
+                 WHEN 'WECHAT' THEN '微信支付'
+                 WHEN 'CCB' THEN '建设银行'
+                 ELSE '其他支付'
+                 END AS method_name,
+             1 AS is_online,  -- 假设都是在线支付
+             NOW()
+FROM ods_event_payment;
 
-INSERT OVERWRITE TABLE dim_region PARTITION(ds='${exec_date}')
-WITH
-address_regions AS (
-    SELECT
-        province,
-        city,
-        district,
-        CONCAT(
-            LPAD(CAST((RAND() * 30 + 1) AS INT), 2, '0'),  -- 省份代码
-            LPAD(CAST((RAND() * 20 + 1) AS INT), 2, '0'),  -- 城市代码
-            LPAD(CAST((RAND() * 10 + 1) AS INT), 2, '0')   -- 区县代码
-        ) as region_code,
-        COUNT(*) as address_count,
-        CURRENT_TIMESTAMP as etl_time
-    FROM ods_user_address_full
-    WHERE ds = '${exec_date}'
-    GROUP BY province, city, district
-),
 
-behavior_regions AS (
-    SELECT
-        province,
-        city,
-        NULL as district,
-        COUNT(*) as behavior_count,
-        CURRENT_TIMESTAMP as etl_time
-    FROM ods_user_behavior_log_inc
-    WHERE ds = '${exec_date}' AND province IS NOT NULL AND city IS NOT NULL
-    GROUP BY province, city
-),
-
-region_source AS (
-    SELECT
-        COALESCE(a.province, b.province) as province,
-        COALESCE(a.city, b.city) as city,
-        a.district,
-        COALESCE(a.region_code, CONCAT(
-            LPAD(CAST((RAND() * 30 + 1) AS INT), 2, '0'),
-            LPAD(CAST((RAND() * 20 + 1) AS INT), 2, '0'),
-            '00'
-        )) as region_code,
-        COALESCE(a.address_count, 0) + COALESCE(b.behavior_count, 0) as activity_count,
-        CURRENT_TIMESTAMP as etl_time
-    FROM address_regions a
-    FULL OUTER JOIN behavior_regions b ON a.province = b.province AND a.city = b.city
-),
-
-current_dim AS (
-    SELECT * FROM dim_region WHERE ds = '${yesterday}'
-),
-
-max_sk AS (
-    SELECT COALESCE(MAX(region_sk), 0) as region_sk_max FROM current_dim
-),
-
-region_hierarchy AS (
-    -- 省份级别
-    SELECT
-        province,
-        NULL as city,
-        NULL as district,
-        CONCAT(SUBSTR(MIN(region_code), 1, 2), '0000') as region_code,
-        1 as region_level,
-        NULL as parent_region_sk,
-        SUM(activity_count) as activity_count,
-        MAX(etl_time) as etl_time
-    FROM region_source
-    GROUP BY province
-
-    UNION ALL
-
-    -- 城市级别
-    SELECT
-        province,
-        city,
-        NULL as district,
-        MIN(region_code) as region_code,
-        2 as region_level,
-        NULL as parent_region_sk,
-        SUM(activity_count) as activity_count,
-        MAX(etl_time) as etl_time
-    FROM region_source
-    WHERE city IS NOT NULL
-    GROUP BY province, city
-
-    UNION ALL
-
-    -- 区县级别
-    SELECT
-        province,
-        city,
-        district,
-        region_code,
-        3 as region_level,
-        NULL as parent_region_sk,
-        activity_count,
-        etl_time
-    FROM region_source
-    WHERE district IS NOT NULL
-)
-
+INSERT INTO dim_terminal (terminal_code, terminal_name, device_type, etl_time)
 SELECT
-    ROW_NUMBER() OVER (ORDER BY rh.region_code) + ms.region_sk_max as region_sk,
-    rh.province,
-    rh.city,
-    rh.district,
-    rh.region_code,
-    SUBSTR(rh.region_code, 1, 2) as province_code,
-    CASE WHEN rh.region_level >= 2 THEN SUBSTR(rh.region_code, 3, 2) ELSE NULL END as city_code,
-    CASE WHEN rh.region_level = 3 THEN SUBSTR(rh.region_code, 5, 2) ELSE NULL END as district_code,
-    rh.region_level,
-    CASE
-        WHEN rh.region_level = 2 THEN (
-            SELECT dr.region_sk FROM dim_region dr
-            WHERE dr.ds = '${yesterday}' AND dr.province = rh.province
-            AND dr.city IS NULL AND dr.region_level = 1 LIMIT 1
-        )
-        WHEN rh.region_level = 3 THEN (
-            SELECT dr.region_sk FROM dim_region dr
-            WHERE dr.ds = '${yesterday}' AND dr.province = rh.province
-            AND dr.city = rh.city AND dr.region_level = 2 LIMIT 1
-        )
-        ELSE NULL
-    END as parent_region_sk,
-    rh.activity_count > 0 as is_active,
-    CURRENT_TIMESTAMP as create_time,
-    CURRENT_TIMESTAMP as update_time,
-    rh.etl_time as etl_date
-FROM region_hierarchy rh
-CROSS JOIN max_sk ms
-WHERE NOT EXISTS (
-    SELECT 1 FROM current_dim cd
-    WHERE cd.province = rh.province
-    AND (cd.city = rh.city OR (cd.city IS NULL AND rh.city IS NULL))
-    AND cd.district = rh.district OR (cd.district IS NULL AND rh.district IS NULL))
-    AND cd.ds = '${yesterday}'
-);
+    DISTINCT terminal AS terminal_code,
+             CASE terminal
+                 WHEN 'PC' THEN '电脑端'
+                 WHEN 'Wireless' THEN '无线端'
+                 WHEN 'App' THEN '应用端'
+                 ELSE terminal
+                 END AS terminal_name,
+             CASE terminal
+                 WHEN 'PC' THEN 'PC'
+                 ELSE 'Mobile'
+                 END AS device_type,
+             NOW()
+FROM (
+         SELECT terminal FROM ods_event_item_visit
+         UNION
+         SELECT terminal FROM ods_event_item_pv
+         UNION
+         SELECT terminal FROM ods_event_item_micro_detail
+     ) t;
 
 
-INSERT OVERWRITE TABLE dim_category PARTITION(ds='${exec_date}')
-WITH
-latest_categories AS (
-    SELECT
-        c1.category_id,
-        c1.category_name,
-        c1.parent_id,
-        c1.level,
-        CASE
-            WHEN c1.level = 1 THEN c1.category_name
-            WHEN c1.level = 2 THEN CONCAT(c2.category_name, '/', c1.category_name)
-            WHEN c1.level = 3 THEN CONCAT(c3.category_name, '/', c2.category_name, '/', c1.category_name)
-        END as full_path,
-        c1.sort_order,
-        c1.status,
-        c1.create_time,
-        CURRENT_TIMESTAMP as etl_time
-    FROM ods_category_info_full c1
-    LEFT JOIN ods_category_info_full c2 ON c1.parent_id = c2.category_id AND c2.ds = '${exec_date}' AND c1.level > 1
-    LEFT JOIN ods_category_info_full c3 ON c2.parent_id = c3.category_id AND c3.ds = '${exec_date}' AND c1.level > 2
-    WHERE c1.ds = '${exec_date}'
-),
-
-current_dim AS (
-    SELECT * FROM dim_category WHERE current_flag = TRUE AND ds = '${yesterday}'
-),
-
-max_sk AS (
-    SELECT COALESCE(MAX(category_sk), 0) as category_sk_max FROM current_dim
-)
-
--- 现有记录更新失效日期
+INSERT INTO dim_activity_type (activity_type, activity_name, etl_time)
 SELECT
-    cd.category_sk,
-    cd.category_id,
-    cd.category_name,
-    cd.parent_id,
-    cd.level,
-    cd.full_path,
-    cd.sort_order,
-    cd.status,
-    cd.effective_date,
-    CASE
-        WHEN cd.category_sk IS NOT NULL AND (
-            COALESCE(lc.category_name,'') != COALESCE(cd.category_name,'') OR
-            COALESCE(lc.status,-1) != COALESCE(cd.status,-1))
-        THEN lc.etl_time
-        ELSE cd.expiry_date
-    END as expiry_date,
-    CASE
-        WHEN cd.category_sk IS NOT NULL AND (
-            COALESCE(lc.category_name,'') != COALESCE(cd.category_name,'') OR
-            COALESCE(lc.status,-1) != COALESCE(cd.status,-1))
-        THEN FALSE
-        ELSE cd.current_flag
-    END as current_flag,
-    cd.version_number,
-    cd.create_time,
-    cd.update_time,
-    COALESCE(lc.etl_time, cd.etl_date) as etl_date
-FROM current_dim cd
-LEFT JOIN latest_categories lc ON cd.category_id = lc.category_id
+    activity_type,
+    CASE activity_type
+        WHEN 'NORMAL' THEN '普通活动'
+        WHEN 'PRESALE' THEN '预售活动'
+        WHEN 'JUHUASUAN' THEN '聚划算'
+        ELSE activity_type
+        END AS activity_name,
+    NOW()
+FROM (
+         SELECT
+             CASE
+                 WHEN is_juhuasuan = 1 THEN 'JUHUASUAN'
+                 WHEN is_presale = 1 THEN 'PRESALE'
+                 ELSE 'NORMAL'
+                 END AS activity_type
+         FROM ods_event_payment
+         GROUP BY activity_type
+     ) t;
 
-UNION ALL
 
--- 新增或变更记录
+INSERT INTO dim_activity (activity_id, activity_name, activity_type, presale_stage, start_date, end_date, etl_time)
 SELECT
-    ROW_NUMBER() OVER (ORDER BY lc.category_id) + ms.category_sk_max as category_sk,
-    lc.category_id,
-    lc.category_name,
-    lc.parent_id,
-    lc.level,
-    lc.full_path,
-    lc.sort_order,
-    lc.status,
-    lc.etl_time as effective_date,
-    NULL as expiry_date,
-    TRUE as current_flag,
-    CASE WHEN cd.category_sk IS NOT NULL THEN cd.version_number + 1 ELSE 1 END as version_number,
-    lc.create_time,
-    lc.etl_time as etl_date
-FROM latest_categories lc
-LEFT JOIN current_dim cd ON lc.category_id = cd.category_id
-CROSS JOIN max_sk ms
-WHERE cd.category_sk IS NULL OR (
-    COALESCE(lc.category_name,'') != COALESCE(cd.category_name,'') OR
-    COALESCE(lc.status,-1) != COALESCE(cd.status,-1)
-);
+    'NORMAL' AS activity_id,
+    '普通商品活动' AS activity_name,
+    'NORMAL' AS activity_type,
+    NULL AS presale_stage,
+    CURDATE() - INTERVAL 60 DAY,
+    CURDATE() + INTERVAL 30 DAY,
+    NOW()
+FROM dual
+WHERE NOT EXISTS (SELECT 1 FROM dim_activity WHERE activity_id = 'NORMAL');
+
+INSERT INTO dim_activity (activity_id, activity_name, activity_type, presale_stage, start_date, end_date, etl_time)
+SELECT
+    CONCAT('PRESALE-', stage) AS activity_id,
+    CONCAT('预售活动-',
+           CASE stage
+               WHEN 'DEPOSIT' THEN '定金阶段'
+               WHEN 'FINAL' THEN '尾款阶段'
+               ELSE '全款阶段'
+               END) AS activity_name,
+    'PRESALE' AS activity_type,
+    stage AS presale_stage,
+    CURDATE() - INTERVAL 30 DAY,
+    CURDATE() + INTERVAL 15 DAY,
+    NOW()
+FROM (
+         SELECT DISTINCT presale_stage AS stage
+         FROM ods_event_payment
+         WHERE is_presale = 1 AND presale_stage IS NOT NULL
+     ) stages;
 
 
-
+INSERT INTO dim_activity (activity_id, activity_name, activity_type, presale_stage, start_date, end_date, etl_time)
+SELECT
+    'JUHUASUAN' AS activity_id,
+    '聚划算活动' AS activity_name,
+    'JUHUASUAN' AS activity_type,
+    NULL AS presale_stage,
+    CURDATE() - INTERVAL 15 DAY,
+    CURDATE() + INTERVAL 7 DAY,
+    NOW()
+FROM dual
+WHERE NOT EXISTS (SELECT 1 FROM dim_activity WHERE activity_id = 'JUHUASUAN');
