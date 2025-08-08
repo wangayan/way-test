@@ -104,4 +104,3 @@ SELECT
 FROM ods_product_transaction_detail_inc
 WHERE ds='${bizdate}';
 
-
