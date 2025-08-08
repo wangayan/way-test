@@ -1,0 +1,106 @@
+use gmall_work_02;
+
+drop table if exists dwd_product_info_df;
+CREATE TABLE dwd_product_info_df (
+  `product_id` string COMMENT '商品ID',
+  `product_name` string COMMENT '商品名称',
+  `category_id` string COMMENT '分类ID',
+  `category_name` string COMMENT '分类名称',
+  `category_level` int COMMENT '分类层级',
+  `parent_category_id` string COMMENT '父分类ID',
+  `parent_category_name` string COMMENT '父分类名称',
+  `brand_id` string COMMENT '品牌ID',
+  `brand_name` string COMMENT '品牌名称',
+  `shelf_time` string COMMENT '上架时间',
+  `price` decimal(10,2) COMMENT '商品价格',
+  `status` int COMMENT '商品状态(1-上架,0-下架)',
+  `create_time` string COMMENT '创建时间',
+  `update_time` string COMMENT '更新时间'
+) COMMENT '商品基础信息宽表'
+PARTITIONED BY (ds string);
+
+SET hivevar:bizdate=20250807;
+INSERT OVERWRITE TABLE dwd_product_info_df PARTITION(ds='${bizdate}')
+SELECT
+  pi.product_id,
+  pi.product_name,
+  pi.category_id,
+  pc.category_name,
+  pc.level AS category_level,
+  pc.parent_id AS parent_category_id,
+  parent_pc.category_name AS parent_category_name,
+  pi.brand_id,
+  pi.brand_name,
+  pi.shelf_time,
+  pi.price,
+  pi.status,
+  pi.create_time,
+  pi.update_time
+FROM ods_product_info_full pi
+LEFT JOIN ods_product_category_full pc ON pi.category_id = pc.category_id AND pc.ds='${bizdate}'
+LEFT JOIN ods_product_category_full parent_pc ON pc.parent_id = parent_pc.category_id AND parent_pc.ds='${bizdate}'
+WHERE pi.ds='${bizdate}';
+
+
+drop table if exists dwd_product_visitor_detail_di;
+CREATE TABLE dwd_product_visitor_detail_di (
+  `id` bigint COMMENT '自增主键',
+  `visitor_id` string COMMENT '访客ID',
+  `product_id` string COMMENT '商品ID',
+  `visit_time` string COMMENT '访问时间',
+  `traffic_source` string COMMENT '标准化流量来源',
+  `stay_duration` int COMMENT '停留时长(秒)',
+  `page_views` int COMMENT '浏览页面数',
+  `is_valid` int COMMENT '是否有效访问'
+) COMMENT '商品访客明细表'
+PARTITIONED BY (ds string);
+
+INSERT OVERWRITE TABLE dwd_product_visitor_detail_di PARTITION(ds='${bizdate}')
+SELECT
+  id,
+  visitor_id,
+  product_id,
+  visit_time,
+  CASE
+    WHEN traffic_source LIKE '%taobao%' THEN '手淘搜索'
+    WHEN traffic_source LIKE '%cart%' THEN '购物车'
+    WHEN traffic_source LIKE '%recommend%' THEN '手淘推荐'
+    ELSE traffic_source
+  END AS traffic_source,
+  stay_duration,
+  page_views,
+  CASE WHEN stay_duration > 1 THEN 1 ELSE 0 END AS is_valid
+FROM ods_product_visitor_detail_inc
+WHERE ds='${bizdate}';
+
+
+drop table if exists dwd_product_transaction_detail_di;
+CREATE TABLE dwd_product_transaction_detail_di (
+  `id` bigint,
+  `order_id` string,
+  `product_id` string,
+  `sku_id` string,
+  `sku_info` string,
+  `buyer_id` string,
+  `payment_amount` decimal(10,2),
+  `payment_time` string,
+  `quantity` int,
+  `is_refund` int
+) COMMENT '商品交易明细表'
+PARTITIONED BY (ds string);
+
+INSERT OVERWRITE TABLE dwd_product_transaction_detail_di PARTITION(ds='${bizdate}')
+SELECT
+  id,
+  order_id,
+  product_id,
+  sku_id,
+  REGEXP_REPLACE(sku_info, ';', ', ') AS sku_info,
+  buyer_id,
+  payment_amount,
+  payment_time,
+  quantity,
+  0 AS is_refund  -- 初始状态设为未退款
+FROM ods_product_transaction_detail_inc
+WHERE ds='${bizdate}';
+

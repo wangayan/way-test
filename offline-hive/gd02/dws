@@ -1,0 +1,145 @@
+use gmall_work_02;
+
+-- 工单编号：大数据-电商数仓-02-商品主题商品排行看板
+DROP TABLE IF EXISTS dws_product_daily_summary;
+CREATE TABLE dws_product_daily_summary (
+  `product_id` string COMMENT '商品ID',
+  `stat_date` date COMMENT '统计日期',
+  `visitor_count` bigint COMMENT '访客数',
+  `order_count` bigint COMMENT '订单数',
+  `buyer_count` bigint COMMENT '支付买家数',
+  `payment_amount` decimal(16,2) COMMENT '支付金额',
+  `payment_quantity` bigint COMMENT '支付件数',
+  `conversion_rate` decimal(5,2) COMMENT '转化率',
+  `avg_stay_duration` int COMMENT '平均停留时长(秒)',
+  `refund_amount` decimal(16,2) COMMENT '退款金额',
+  `refund_quantity` bigint COMMENT '退款件数',
+  `cart_count` bigint COMMENT '加购次数'
+) COMMENT '商品每日汇总表'
+PARTITIONED BY (ds string);
+
+-- 工单编号：大数据-电商数仓-02-商品主题商品排行看板
+SET hivevar:bizdate=20250805;
+
+INSERT OVERWRITE TABLE dws_product_daily_summary PARTITION(ds='${bizdate}')
+SELECT
+  p.product_id,
+  DATE_FORMAT(v.visit_time, 'yyyy-MM-dd') AS stat_date,
+  COUNT(DISTINCT v.visitor_id) AS visitor_count,
+  COUNT(DISTINCT t.order_id) AS order_count,
+  COUNT(DISTINCT t.buyer_id) AS buyer_count,
+  SUM(t.payment_amount) AS payment_amount,
+  SUM(t.quantity) AS payment_quantity,
+  ROUND(COUNT(DISTINCT t.buyer_id)/NULLIF(COUNT(DISTINCT v.visitor_id), 0), 4) AS conversion_rate,
+  AVG(v.stay_duration) AS avg_stay_duration,
+  SUM(CASE WHEN t.is_refund = 1 THEN t.payment_amount ELSE 0 END) AS refund_amount,
+  SUM(CASE WHEN t.is_refund = 1 THEN t.quantity ELSE 0 END) AS refund_quantity,
+  COUNT(DISTINCT CASE WHEN v.traffic_source = '购物车' THEN v.visitor_id END) AS cart_count
+FROM dwd_product_visitor_detail_di v
+LEFT JOIN dwd_product_transaction_detail_di t
+  ON v.product_id = t.product_id
+  AND v.visitor_id = t.buyer_id
+  AND DATE_FORMAT(v.visit_time, 'yyyy-MM-dd') = DATE_FORMAT(t.payment_time, 'yyyy-MM-dd')
+  AND t.ds='${bizdate}'
+JOIN dwd_product_info_df p ON v.product_id = p.product_id AND p.ds='${bizdate}'
+WHERE v.ds='${bizdate}' AND v.is_valid=1
+GROUP BY p.product_id, DATE_FORMAT(v.visit_time, 'yyyy-MM-dd');
+
+
+DROP TABLE IF EXISTS dws_product_traffic_source_summary;
+CREATE TABLE dws_product_traffic_source_summary (
+  `product_id` string COMMENT '商品ID',
+  `traffic_source` string COMMENT '流量来源',
+  `stat_date` date COMMENT '统计日期',
+  `visitor_count` bigint COMMENT '访客数',
+  `order_count` bigint COMMENT '订单数',
+  `buyer_count` bigint COMMENT '支付买家数',
+  `payment_amount` decimal(16,2) COMMENT '支付金额',
+  `conversion_rate` decimal(5,2) COMMENT '转化率(支付买家数/访客数)'
+) COMMENT '商品流量来源汇总表'
+PARTITIONED BY (ds string);
+
+-- 工单编号：大数据-电商数仓-02-商品主题商品排行看板
+INSERT OVERWRITE TABLE dws_product_traffic_source_summary PARTITION(ds='${bizdate}')
+SELECT
+  v.product_id,
+  v.traffic_source,
+  DATE_FORMAT(v.visit_time, 'yyyy-MM-dd') AS stat_date,
+  COUNT(DISTINCT v.visitor_id) AS visitor_count,
+  COUNT(DISTINCT t.order_id) AS order_count,
+  COUNT(DISTINCT t.buyer_id) AS buyer_count,
+  SUM(t.payment_amount) AS payment_amount,
+  ROUND(COUNT(DISTINCT t.buyer_id)/NULLIF(COUNT(DISTINCT v.visitor_id), 0), 4) AS conversion_rate
+FROM dwd_product_visitor_detail_di v
+LEFT JOIN dwd_product_transaction_detail_di t
+  ON v.product_id = t.product_id
+  AND v.visitor_id = t.buyer_id
+  AND DATE_FORMAT(v.visit_time, 'yyyy-MM-dd') = DATE_FORMAT(t.payment_time, 'yyyy-MM-dd')
+  AND t.ds='${bizdate}'
+WHERE v.ds='${bizdate}' AND v.is_valid=1
+GROUP BY v.product_id, v.traffic_source, DATE_FORMAT(v.visit_time, 'yyyy-MM-dd');
+
+DROP TABLE IF EXISTS dws_product_traffic_source_summary;
+CREATE TABLE dws_product_traffic_source_summary (
+  `product_id` string COMMENT '商品ID',
+  `traffic_source` string COMMENT '流量来源',
+  `stat_date` date COMMENT '统计日期',
+  `visitor_count` bigint COMMENT '访客数',
+  `order_count` bigint COMMENT '订单数',
+  `buyer_count` bigint COMMENT '支付买家数',
+  `payment_amount` decimal(16,2) COMMENT '支付金额',
+  `conversion_rate` decimal(5,2) COMMENT '转化率(支付买家数/访客数)'
+) COMMENT '商品流量来源汇总表'
+PARTITIONED BY (ds string);
+
+-- 工单编号：大数据-电商数仓-02-商品主题商品排行看板
+INSERT OVERWRITE TABLE dws_product_traffic_source_summary PARTITION(ds='${bizdate}')
+SELECT
+  v.product_id,
+  v.traffic_source,
+  DATE_FORMAT(v.visit_time, 'yyyy-MM-dd') AS stat_date,
+  COUNT(DISTINCT v.visitor_id) AS visitor_count,
+  COUNT(DISTINCT t.order_id) AS order_count,
+  COUNT(DISTINCT t.buyer_id) AS buyer_count,
+  SUM(t.payment_amount) AS payment_amount,
+  ROUND(COUNT(DISTINCT t.buyer_id)/NULLIF(COUNT(DISTINCT v.visitor_id), 0), 4) AS conversion_rate
+FROM dwd_product_visitor_detail_di v
+LEFT JOIN dwd_product_transaction_detail_di t
+  ON v.product_id = t.product_id
+  AND v.visitor_id = t.buyer_id
+  AND DATE_FORMAT(v.visit_time, 'yyyy-MM-dd') = DATE_FORMAT(t.payment_time, 'yyyy-MM-dd')
+  AND t.ds='${bizdate}'
+WHERE v.ds='${bizdate}' AND v.is_valid=1
+GROUP BY v.product_id, v.traffic_source, DATE_FORMAT(v.visit_time, 'yyyy-MM-dd');
+
+
+
+DROP TABLE IF EXISTS dws_product_sku_daily_summary;
+CREATE TABLE dws_product_sku_daily_summary (
+  `product_id` string COMMENT '商品ID',
+  `sku_id` string COMMENT 'SKU ID',
+  `sku_info` string COMMENT 'SKU信息',
+  `stat_date` date COMMENT '统计日期',
+  `payment_amount` decimal(16,2) COMMENT '支付金额',
+  `payment_quantity` bigint COMMENT '支付件数',
+  `buyer_count` bigint COMMENT '支付买家数',
+  `refund_amount` decimal(16,2) COMMENT '退款金额',
+  `refund_quantity` bigint COMMENT '退款件数'
+) COMMENT '商品SKU每日销售汇总表'
+PARTITIONED BY (ds string);
+
+-- 工单编号：大数据-电商数仓-02-商品主题商品排行看板
+INSERT OVERWRITE TABLE dws_product_sku_daily_summary PARTITION(ds='${bizdate}')
+SELECT
+  t.product_id,
+  t.sku_id,
+  t.sku_info,
+  DATE_FORMAT(t.payment_time, 'yyyy-MM-dd') AS stat_date,
+  SUM(t.payment_amount) AS payment_amount,
+  SUM(t.quantity) AS payment_quantity,
+  COUNT(DISTINCT t.buyer_id) AS buyer_count,
+  SUM(CASE WHEN t.is_refund = 1 THEN t.payment_amount ELSE 0 END) AS refund_amount,
+  SUM(CASE WHEN t.is_refund = 1 THEN t.quantity ELSE 0 END) AS refund_quantity
+FROM dwd_product_transaction_detail_di t
+WHERE t.ds='${bizdate}'
+GROUP BY t.product_id, t.sku_id, t.sku_info, DATE_FORMAT(t.payment_time, 'yyyy-MM-dd');
