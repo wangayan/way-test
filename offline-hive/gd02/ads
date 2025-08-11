@@ -1,0 +1,198 @@
+USE gmall_work_02;
+
+-- 工单编号：大数据-电商数仓-02-商品主题商品排行看板
+DROP TABLE IF EXISTS ads_product_rank_daily;
+CREATE TABLE ads_product_rank_daily (
+  `product_id` string COMMENT '商品ID',
+  `product_name` string COMMENT '商品名称',
+  `category_id` string COMMENT '分类ID',
+  `category_name` string COMMENT '分类名称',
+  `brand_id` string COMMENT '品牌ID',
+  `brand_name` string COMMENT '品牌名称',
+  `stat_date` date COMMENT '统计日期',
+  `time_period` string COMMENT '时间周期(day/week/month/custom)',
+  `visitor_count` bigint COMMENT '访客数',
+  `order_count` bigint COMMENT '订单数',
+  `buyer_count` bigint COMMENT '支付买家数',
+  `payment_amount` decimal(16,2) COMMENT '支付金额',
+  `payment_quantity` bigint COMMENT '支付件数',
+  `conversion_rate` decimal(5,4) COMMENT '转化率(支付买家数/访客数)',
+  `avg_stay_duration` int COMMENT '平均停留时长(秒)',
+  `refund_amount` decimal(16,2) COMMENT '退款金额',
+  `refund_quantity` bigint COMMENT '退款件数',
+  `cart_count` bigint COMMENT '加购次数',
+  `refund_rate` decimal(5,4) COMMENT '退款率(退款件数/支付件数)',
+  `payment_amount_rank` int COMMENT '支付金额排名',
+  `payment_quantity_rank` int COMMENT '支付件数排名',
+  `visitor_count_rank` int COMMENT '访客数排名',
+  `conversion_rate_rank` int COMMENT '转化率排名',
+  `category_payment_amount_rank` int COMMENT '分类内支付金额排名',
+  `category_payment_quantity_rank` int COMMENT '分类内支付件数排名'
+) COMMENT '商品综合排行表'
+PARTITIONED BY (ds string);
+
+-- 工单编号：大数据-电商数仓-02-商品主题商品排行看板
+DROP TABLE IF EXISTS ads_product_traffic_source_top10;
+CREATE TABLE ads_product_traffic_source_top10 (
+  `product_id` string COMMENT '商品ID',
+  `product_name` string COMMENT '商品名称',
+  `stat_date` date COMMENT '统计日期',
+  `time_period` string COMMENT '时间周期(day/week/month/custom)',
+  `traffic_source` string COMMENT '流量来源',
+  `visitor_count` bigint COMMENT '访客数',
+  `order_count` bigint COMMENT '订单数',
+  `buyer_count` bigint COMMENT '支付买家数',
+  `payment_amount` decimal(16,2) COMMENT '支付金额',
+  `conversion_rate` decimal(5,4) COMMENT '转化率(支付买家数/访客数)',
+  `traffic_source_rank` int COMMENT '流量来源排名(按访客数)'
+) COMMENT '商品流量来源TOP10表'
+PARTITIONED BY (ds string);
+
+
+DROP TABLE IF EXISTS ads_product_sku_top5;
+CREATE TABLE ads_product_sku_top5 (
+  `product_id` string COMMENT '商品ID',
+  `product_name` string COMMENT '商品名称',
+  `stat_date` date COMMENT '统计日期',
+  `time_period` string COMMENT '时间周期(day/week/month/custom)',
+  `sku_id` string COMMENT 'SKU ID',
+  `sku_info` string COMMENT 'SKU信息',
+  `payment_amount` decimal(16,2) COMMENT '支付金额',
+  `payment_quantity` bigint COMMENT '支付件数',
+  `buyer_count` bigint COMMENT '支付买家数',
+  `refund_amount` decimal(16,2) COMMENT '退款金额',
+  `refund_quantity` bigint COMMENT '退款件数',
+  `quantity_ratio` decimal(5,4) COMMENT '支付件数占比',
+  `sku_rank` int COMMENT 'SKU排名(按支付件数)'
+) COMMENT '商品SKU销售TOP5表'
+PARTITIONED BY (ds string);
+
+SET hivevar:bizdate=20250807;
+
+INSERT OVERWRITE TABLE ads_product_rank_daily PARTITION(ds='${bizdate}')
+SELECT
+  p.product_id,
+  p.product_name,
+  p.category_id,
+  p.category_name,
+  p.brand_id,
+  p.brand_name,
+  s.stat_date,
+  'day' AS time_period,
+  s.visitor_count,
+  s.order_count,
+  s.buyer_count,
+  s.payment_amount,
+  s.payment_quantity,
+  s.conversion_rate,
+  s.avg_stay_duration,
+  s.refund_amount,
+  s.refund_quantity,
+  s.cart_count,
+  CASE WHEN s.payment_quantity = 0 THEN 0
+       ELSE ROUND(s.refund_quantity/s.payment_quantity, 4)
+  END AS refund_rate,
+  RANK() OVER (ORDER BY s.payment_amount DESC) AS payment_amount_rank,
+  RANK() OVER (ORDER BY s.payment_quantity DESC) AS payment_quantity_rank,
+  RANK() OVER (ORDER BY s.visitor_count DESC) AS visitor_count_rank,
+  RANK() OVER (ORDER BY s.conversion_rate DESC) AS conversion_rate_rank,
+  RANK() OVER (PARTITION BY p.category_id ORDER BY s.payment_amount DESC) AS category_payment_amount_rank,
+  RANK() OVER (PARTITION BY p.category_id ORDER BY s.payment_quantity DESC) AS category_payment_quantity_rank
+FROM dws_product_daily_summary s
+JOIN dwd_product_info_df p ON s.product_id = p.product_id AND p.ds='${bizdate}'
+WHERE s.ds='${bizdate}';
+
+
+INSERT OVERWRITE TABLE ads_product_traffic_source_top10 PARTITION(ds='${bizdate}')
+SELECT
+  t.product_id,
+  t.product_name,
+  t.stat_date,
+  t.time_period,
+  t.traffic_source,
+  t.visitor_count,
+  t.order_count,
+  t.buyer_count,
+  t.payment_amount,
+  t.conversion_rate,
+  t.traffic_source_rank
+FROM (
+  SELECT
+    p.product_id,
+    p.product_name,
+    t.stat_date,
+    'day' AS time_period,
+    t.traffic_source,
+    t.visitor_count,
+    t.order_count,
+    t.buyer_count,
+    t.payment_amount,
+    t.conversion_rate,
+    RANK() OVER (PARTITION BY t.product_id ORDER BY t.visitor_count DESC) AS traffic_source_rank
+  FROM dws_product_traffic_source_summary t
+  JOIN dwd_product_info_df p ON t.product_id = p.product_id AND p.ds='${bizdate}'
+  WHERE t.ds='${bizdate}'
+) t
+WHERE t.traffic_source_rank <= 10;
+
+INSERT OVERWRITE TABLE ads_product_sku_top5 PARTITION(ds='${bizdate}')
+SELECT
+  s.product_id,
+  s.product_name,
+  s.stat_date,
+  s.time_period,
+  s.sku_id,
+  s.sku_info,
+  s.payment_amount,
+  s.payment_quantity,
+  s.buyer_count,
+  s.refund_amount,
+  s.refund_quantity,
+  s.quantity_ratio,
+  s.sku_rank
+FROM (
+  SELECT
+    p.product_id,
+    p.product_name,
+    s.stat_date,
+    'day' AS time_period,
+    s.sku_id,
+    s.sku_info,
+    s.payment_amount,
+    s.payment_quantity,
+    s.buyer_count,
+    s.refund_amount,
+    s.refund_quantity,
+    ROUND(s.payment_quantity/t.total_quantity, 4) AS quantity_ratio,
+    RANK() OVER (PARTITION BY s.product_id ORDER BY s.payment_quantity DESC) AS sku_rank
+  FROM dws_product_sku_daily_summary s
+  JOIN dwd_product_info_df p ON s.product_id = p.product_id AND p.ds='${bizdate}'
+  JOIN (
+    SELECT
+      product_id,
+      SUM(payment_quantity) AS total_quantity
+    FROM dws_product_sku_daily_summary
+    WHERE ds='${bizdate}'
+    GROUP BY product_id
+  ) t ON s.product_id = t.product_id
+  WHERE s.ds='${bizdate}'
+) s
+WHERE s.sku_rank <= 5;
+
+
+SELECT
+  r.product_id,
+  p.product_name,
+  p.category_name,
+  p.brand_name,
+  r.payment_amount,
+  r.payment_quantity,
+  r.payment_amount_rank,
+  r.payment_quantity_rank
+FROM ads_product_rank_daily r
+JOIN dwd_product_info_df p ON r.product_id = p.product_id
+ORDER BY r.payment_amount DESC
+LIMIT 10
+
+
+
