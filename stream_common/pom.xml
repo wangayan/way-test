@@ -271,6 +271,7 @@
             <version>2.4.1</version>
             <!--  版本需与 Flink 版本兼容，2.4.x 适配 Flink 1.15+  -->
         </dependency>
+
         <dependency>
             <groupId>com.microsoft.sqlserver</groupId>
             <artifactId>mssql-jdbc</artifactId>
