@@ -10,7 +10,7 @@
     <version>1.0-SNAPSHOT</version>
     <modules>
         <module>stream-realtime</module>
-        <module>stream_common</module>
+        <module>stream-common</module>
         <module>stream-deploy</module>
     </modules>
 

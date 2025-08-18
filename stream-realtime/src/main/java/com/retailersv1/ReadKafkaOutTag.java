@@ -2,10 +2,7 @@ package com.retailersv1;
 
 import com.alibaba.fastjson.JSONObject;
 import com.retailersv1.func.ProcessSplitStreamFunc;
-import com.stream.common.utils.CommonUtils;
-import com.stream.common.utils.ConfigUtils;
-import com.stream.common.utils.DateTimeUtils;
-import com.stream.common.utils.KafkaUtils;
+import com.stream.common.utils.*;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.RichMapFunction;
@@ -14,7 +11,6 @@ import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.*;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -22,18 +18,17 @@ import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 
-import java.io.Serializable;
 import java.util.Date;
 import java.util.HashMap;
 
 /**
- * @Title: ReadkafkaOutTag
- * @Author wangayan
+ * @Title: ReadKafkaOutTag
+ * @Author wang ayan
  * @Package com.stream.common
  * @Date 2025/8/15 17:19
  * @description: 读取kafka数据 分流
  */
-public class ReadkafkaOutTag {
+public class ReadKafkaOutTag {
 
     private static final String kafka_topic_base_log_data = ConfigUtils.getString("REALTIME.KAFKA.LOG.TOPIC");
     private static final String kafka_botstrap_servers = ConfigUtils.getString("kafka.bootstrap.servers");
@@ -76,7 +71,7 @@ public class ReadkafkaOutTag {
                         kafka_botstrap_servers,
                         kafka_topic_base_log_data,
                         new Date().toString(),
-                        OffsetsInitializer.latest()
+                        OffsetsInitializer.earliest()
                 ),
                 WatermarkStrategy.noWatermarks(),
                 "realtime_log"
@@ -94,6 +89,8 @@ public class ReadkafkaOutTag {
                     }
                 }).uid("convert_json_process")
                 .name("convert_json_process");
+
+        processDS.print("processDS -> ");
 
         SideOutputDataStream<String> dirtyDS = processDS.getSideOutput(dirtyTag);
         dirtyDS.print("dirtyDS -> ");

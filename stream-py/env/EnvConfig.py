@@ -1,10 +1,8 @@
 from tqdm import tqdm
 import os
 
-"D:\mvn\common-config.properties.local"
 local_file_path = '../../../common-config.properties.local'
 target_file_path = '../../stream-common/src/main/resources/filter/common-config.properties.prod'
-target_file_path = '../../stream_common/src/main/resources/filter/common-config.properties.prod'
 
 
 def copy_local_prop_2_dev(source_file, target_file):
@@ -37,5 +35,5 @@ def check_process_config(file_path):
 
 
 if __name__ == '__main__':
-    # check_process_config(target_file_path)
-    clean_file_dev(target_file_path)
+    check_process_config(target_file_path)
+    # clean_file_dev(target_file_path)
