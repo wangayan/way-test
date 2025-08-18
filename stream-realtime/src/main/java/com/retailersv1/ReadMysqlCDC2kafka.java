@@ -11,7 +11,7 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
 /**
  * @Title: ReadMysqlCDC2kafka
- * @Author wangayan
+ * @Author wang ayan
  * @Package com.stream.common.domain
  * @Date 2025/8/15 14:57
  * @description: 读取kafka中的数据

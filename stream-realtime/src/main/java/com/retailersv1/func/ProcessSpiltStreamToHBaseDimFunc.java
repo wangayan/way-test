@@ -12,8 +12,11 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.co.BroadcastProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Table;
+import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.MD5Hash;
 
@@ -24,39 +27,63 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * @Title: ProcessSpiltStreamToHBaseDimFunc
- * @Author wang ayan
- * @Package com.retailer.func
- * @Date 2025/8/18 9:47
- * @description:
- */
 public class ProcessSpiltStreamToHBaseDimFunc extends BroadcastProcessFunction<JSONObject,JSONObject,JSONObject> {
 
     private MapStateDescriptor<String,JSONObject> mapStateDescriptor;
     private HashMap<String, TableProcessDim> configMap =  new HashMap<>();
-
-    private org.apache.hadoop.hbase.client.Connection hbaseConnection ;
-
+    private org.apache.hadoop.hbase.client.Connection hbaseConnection;
     private HbaseUtils hbaseUtils;
-
-
 
     @Override
     public void open(Configuration parameters) throws Exception {
+        // 初始化MySQL连接
         Connection connection = JdbcUtils.getMySQLConnection(
                 ConfigUtils.getString("mysql.url"),
                 ConfigUtils.getString("mysql.user"),
                 ConfigUtils.getString("mysql.pwd"));
+
+        // 加载维度表配置
         String querySQL = "select * from realtime_v1_config.table_process_dim";
         List<TableProcessDim> tableProcessDims = JdbcUtils.queryList(connection, querySQL, TableProcessDim.class, true);
-        // configMap:spu_info -> TableProcessDim(sourceTable=spu_info, sinkTable=dim_spu_info, sinkColumns=id,spu_name,description,category3_id,tm_id, sinkFamily=info, sinkRowKey=id, op=null)
-        for (TableProcessDim tableProcessDim : tableProcessDims ){
-            configMap.put(tableProcessDim.getSourceTable(),tableProcessDim);
+
+        for (TableProcessDim tableProcessDim : tableProcessDims) {
+            configMap.put(tableProcessDim.getSourceTable(), tableProcessDim);
         }
         connection.close();
+
+        // 初始化HBase连接
         hbaseUtils = new HbaseUtils(ConfigUtils.getString("zookeeper.server.host.list"));
         hbaseConnection = hbaseUtils.getConnection();
+
+        // 预创建所有需要的HBase表
+        ensureAllTablesExist();
+    }
+
+    /**
+     * 确保所有需要的HBase表都存在
+     */
+    private void ensureAllTablesExist() throws Exception {
+        try (Admin admin = hbaseConnection.getAdmin()) {
+            for (TableProcessDim dimConfig : configMap.values()) {
+                String tableName = "default:" + dimConfig.getSinkTable();
+                TableName hbaseTableName = TableName.valueOf(tableName);
+
+                if (!admin.tableExists(hbaseTableName)) {
+                    // 创建表
+                    TableDescriptorBuilder tableBuilder = TableDescriptorBuilder.newBuilder(hbaseTableName);
+
+                    // 添加列族（使用配置中的列族，默认为"info"）
+                    String columnFamily = dimConfig.getSinkFamily() != null ?
+                            dimConfig.getSinkFamily() : "info";
+                    tableBuilder.setColumnFamily(
+                            ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(columnFamily)).build()
+                    );
+
+                    admin.createTable(tableBuilder.build());
+                    System.out.println("Created HBase table: " + tableName);
+                }
+            }
+        }
     }
 
     public ProcessSpiltStreamToHBaseDimFunc(MapStateDescriptor<String, JSONObject> mapStageDesc) {
@@ -64,55 +91,99 @@ public class ProcessSpiltStreamToHBaseDimFunc extends BroadcastProcessFunction<J
     }
 
     @Override
-    public void processElement(JSONObject jsonObject, BroadcastProcessFunction<JSONObject, JSONObject, JSONObject>.ReadOnlyContext readOnlyContext, Collector<JSONObject> collector) throws Exception {
-        //{"op":"c","after":{"is_ordered":0,"cart_price":"Ceqs","sku_num":1,"create_time":1734821068000,"user_id":"1150","sku_id":3,"sku_name":"小米12S Ultra 骁龙8+旗舰处理器 徕卡光学镜头 2K超视感屏 120Hz高刷 67W快充 12GB+256GB 经典黑 5G手机","id":20224},"source":{"thread":123678,"server_id":1,"version":"1.9.7.Final","file":"mysql-bin.000002","connector":"mysql","pos":383682973,"name":"mysql_binlog_source","row":0,"ts_ms":1734741512000,"snapshot":"false","db":"realtime_v1","table":"cart_info"},"ts_ms":1734741512593}
-//        System.err.println("processElement process -> "+jsonObject.toString());
-        //org.apache.flink.streaming.api.operators.co.CoBroadcastWithNonKeyedOperator$ReadOnlyContextImpl@52b20462
+    public void processElement(JSONObject jsonObject, ReadOnlyContext readOnlyContext, Collector<JSONObject> collector) throws Exception {
         ReadOnlyBroadcastState<String, JSONObject> broadcastState = readOnlyContext.getBroadcastState(mapStateDescriptor);
         String tableName = jsonObject.getJSONObject("source").getString("table");
         JSONObject broadData = broadcastState.get(tableName);
-        // 这里可能为null NullPointerException
-        if (broadData != null || configMap.get(tableName) != null){
-            if (configMap.get(tableName).getSourceTable().equals(tableName)){
-//                System.err.println(jsonObject);
-                if (!jsonObject.getString("op").equals("d")){
-                    JSONObject after = jsonObject.getJSONObject("after");
-                    String sinkTableName = configMap.get(tableName).getSinkTable();
-                    sinkTableName = "realtime_v2:"+sinkTableName;
-                    String hbaseRowKey = after.getString(configMap.get(tableName).getSinkRowKey());
-                    Table hbaseConnectionTable = hbaseConnection.getTable(TableName.valueOf(sinkTableName));
+
+        // 获取表配置（优先使用广播状态中的配置）
+        TableProcessDim tableConfig = null;
+        if (broadData != null) {
+            tableConfig = broadData.getJSONObject("after").toJavaObject(TableProcessDim.class);
+        } else {
+            tableConfig = configMap.get(tableName);
+        }
+
+        if (tableConfig != null && tableConfig.getSourceTable().equals(tableName)) {
+            if (!jsonObject.getString("op").equals("d")) {
+                JSONObject after = jsonObject.getJSONObject("after");
+                String sinkTableName = "default:" + tableConfig.getSinkTable();
+
+                // 确保表存在（双重检查）
+                ensureTableExists(sinkTableName, tableConfig.getSinkFamily());
+
+                String hbaseRowKey = after.getString(tableConfig.getSinkRowKey());
+                try (Table hbaseTable = hbaseConnection.getTable(TableName.valueOf(sinkTableName))) {
                     Put put = new Put(Bytes.toBytes(MD5Hash.getMD5AsHex(hbaseRowKey.getBytes(StandardCharsets.UTF_8))));
+
+                    // 使用配置中的列族，默认为"info"
+                    String columnFamily = tableConfig.getSinkFamily() != null ?
+                            tableConfig.getSinkFamily() : "info";
+
                     for (Map.Entry<String, Object> entry : after.entrySet()) {
-                        put.addColumn(Bytes.toBytes("info"),Bytes.toBytes(entry.getKey()),Bytes.toBytes(String.valueOf(entry.getValue())));
+                        put.addColumn(
+                                Bytes.toBytes(columnFamily),
+                                Bytes.toBytes(entry.getKey()),
+                                Bytes.toBytes(String.valueOf(entry.getValue()))
+                        );
                     }
-                    hbaseConnectionTable.put(put);
-                    System.err.println("put -> "+put.toJSON()+" "+ Arrays.toString(put.getRow()));
+
+                    hbaseTable.put(put);
+                    System.err.println("Successfully put to HBase: " + sinkTableName +
+                            ", rowKey: " + Arrays.toString(put.getRow()));
                 }
             }
         }
     }
 
+    /**
+     * 确保单个表存在
+     */
+    private void ensureTableExists(String tableName, String columnFamily) throws Exception {
+        try (Admin admin = hbaseConnection.getAdmin()) {
+            TableName hbaseTableName = TableName.valueOf(tableName);
+            if (!admin.tableExists(hbaseTableName)) {
+                TableDescriptorBuilder tableBuilder = TableDescriptorBuilder.newBuilder(hbaseTableName);
+
+                // 使用传入的列族，如果为空则使用默认值"info"
+                String cf = columnFamily != null ? columnFamily : "info";
+                tableBuilder.setColumnFamily(
+                        ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(cf)).build()
+                );
+
+                admin.createTable(tableBuilder.build());
+                System.out.println("Created HBase table on demand: " + tableName);
+            }
+        }
+    }
+
     @Override
-    public void processBroadcastElement(JSONObject jsonObject, BroadcastProcessFunction<JSONObject, JSONObject, JSONObject>.Context context, Collector<JSONObject> collector) throws Exception {
-        // {"op":"r","after":{"sink_row_key":"id","sink_family":"info","sink_table":"dim_base_category2","source_table":"base_category2","sink_columns":"id,name,category1_id"}}
-//        System.err.println("processBroadcastElement jsonObject -> "+ jsonObject.toString());
+    public void processBroadcastElement(JSONObject jsonObject, Context context, Collector<JSONObject> collector) throws Exception {
         BroadcastState<String, JSONObject> broadcastState = context.getBroadcastState(mapStateDescriptor);
-        // HeapBroadcastState{stateMetaInfo=RegisteredBroadcastBackendStateMetaInfo{name='mapStageDesc', keySerializer=org.apache.flink.api.common.typeutils.base.StringSerializer@39529185, valueSerializer=org.apache.flink.api.java.typeutils.runtime.kryo.KryoSerializer@59b0797e, assignmentMode=BROADCAST}, backingMap={}, internalMapCopySerializer=org.apache.flink.api.common.typeutils.base.MapSerializer@4ab01899}
         String op = jsonObject.getString("op");
-        if (jsonObject.containsKey("after")){
-            String sourceTableName = jsonObject.getJSONObject("after").getString("source_table");
-            if ("d".equals(op)){
+
+        if (jsonObject.containsKey("after")) {
+            JSONObject after = jsonObject.getJSONObject("after");
+            String sourceTableName = after.getString("source_table");
+
+            if ("d".equals(op)) {
                 broadcastState.remove(sourceTableName);
-            }else {
-                broadcastState.put(sourceTableName,jsonObject);
-//                configMap.put(sourceTableName,jsonObject.toJavaObject(TableProcessDim.class));
+            } else {
+                broadcastState.put(sourceTableName, jsonObject);
+
+                // 当有新配置时，确保对应的HBase表存在
+                String sinkTable = after.getString("sink_table");
+                String columnFamily = after.getString("sink_family");
+                ensureTableExists("default:" + sinkTable, columnFamily);
             }
         }
     }
 
     @Override
     public void close() throws Exception {
+        if (hbaseConnection != null) {
+            hbaseConnection.close();
+        }
         super.close();
-        hbaseConnection.close();
     }
 }

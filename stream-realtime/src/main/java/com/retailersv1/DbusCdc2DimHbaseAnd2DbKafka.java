@@ -22,7 +22,7 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
  * @Author wang ayan
  * @Package com.retailer
  * @Date 2025/8/18 9:30
- * @description:
+ * @description: MySQL CDC 数据同步到 HBase 维度表 + Kafka
  */
 public class DbusCdc2DimHbaseAnd2DbKafka {
 
@@ -41,31 +41,37 @@ public class DbusCdc2DimHbaseAnd2DbKafka {
 
         EnvironmentSettingUtils.defaultParameter(env);
 
+        // 主数据源：业务数据库CDC
         MySqlSource<String> mySQLDbMainCdcSource = CdcSourceUtils.getMySQLCdcSource(
                 ConfigUtils.getString("mysql.database"),
-                "",
-                ConfigUtils.getString("mysql.username"),
+                "",                  //数据库中的所有表
+                ConfigUtils.getString("mysql.user"),
                 ConfigUtils.getString("mysql.pwd"),
-                StartupOptions.initial()
+                StartupOptions.initial()   //从最早位置开始
         );
+
 
         // 读取配置库的变化binlog
         MySqlSource<String> mySQLCdcDimConfSource = CdcSourceUtils.getMySQLCdcSource(
                 ConfigUtils.getString("mysql.databases.conf"),
-                "realtime_log.table_process_dim",
+                "realtime_v1_config.table_process_dim",
                 ConfigUtils.getString("mysql.user"),
                 ConfigUtils.getString("mysql.pwd"),
                 StartupOptions.initial()
         );
 
-        DataStreamSource<String> cdcDbMainStream = env.fromSource(mySQLDbMainCdcSource, WatermarkStrategy.noWatermarks(), "mysql_cdc_main_source");
-        DataStreamSource<String> cdcDbDimStream = env.fromSource(mySQLCdcDimConfSource, WatermarkStrategy.noWatermarks(), "mysql_cdc_dim_source");
 
+        // 读取主数据流
+        DataStreamSource<String> cdcDbMainStream = env.fromSource(mySQLDbMainCdcSource, WatermarkStrategy.noWatermarks(), "mysql_cdc_main_source");
+
+
+        // 转换为JSON对象
         SingleOutputStreamOperator<JSONObject> cdcDbMainStreamMap = cdcDbMainStream.map(JSONObject::parseObject)
                 .uid("db_data_convert_json")
                 .name("db_data_convert_json")
                 .setParallelism(1);
 
+        // 输出到kafka（供下游使用）
         cdcDbMainStreamMap.map(JSONObject::toString)
                 .sinkTo(
                         KafkaUtils.buildKafkaSink(CDH_KAFKA_SERVER, MYSQL_CDC_TO_KAFKA_TOPIC)
@@ -75,11 +81,17 @@ public class DbusCdc2DimHbaseAnd2DbKafka {
 
         cdcDbMainStreamMap.print("cdcDbMainStreamMap -> ");
 
+
+        //读取维度配置流
+        DataStreamSource<String> cdcDbDimStream = env.fromSource(mySQLCdcDimConfSource, WatermarkStrategy.noWatermarks(), "mysql_cdc_dim_source");
+
+        //转换为JSON对象
         SingleOutputStreamOperator<JSONObject> cdcDbDimStreamMap = cdcDbDimStream.map(JSONObject::parseObject)
                 .uid("dim_data_convert_json")
                 .name("dim_data_convert_json")
                 .setParallelism(1);
 
+        // // 清理 JSON 数据，只保留必要字段
         SingleOutputStreamOperator<JSONObject> cdcDbDimStreamMapCleanColumn = cdcDbDimStreamMap.map(s -> {
                     s.remove("source");
                     s.remove("transaction");
@@ -101,10 +113,16 @@ public class DbusCdc2DimHbaseAnd2DbKafka {
 
 
 
+        // 创建广播状态描述符
         MapStateDescriptor<String, JSONObject> mapStageDesc = new MapStateDescriptor<>("mapStageDesc", String.class, JSONObject.class);
+
+        //将维度配置流广播到所有并行实例
         BroadcastStream<JSONObject> broadcastDs = tpDS.broadcast(mapStageDesc);
+
+        // 连接主数据流和广播的维度配置流
         BroadcastConnectedStream<JSONObject, JSONObject> connectDs = cdcDbMainStreamMap.connect(broadcastDs);
 
+        // 处理连接后的流（ProcessSpiltStreamToHBaseDimFunc）
         connectDs.process(new ProcessSpiltStreamToHBaseDimFunc(mapStageDesc));
 
 
