@@ -27,22 +27,28 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class ProcessSpiltStreamToHBaseDimFunc extends BroadcastProcessFunction<JSONObject,JSONObject,JSONObject> {
+public class ProcessSpiltStreamToHBaseDimFunc extends BroadcastProcessFunction<JSONObject, JSONObject, JSONObject> {
 
-    private MapStateDescriptor<String,JSONObject> mapStateDescriptor;
-    private HashMap<String, TableProcessDim> configMap =  new HashMap<>();
+    private final MapStateDescriptor<String, JSONObject> mapStateDescriptor;
+    private final HashMap<String, TableProcessDim> configMap = new HashMap<>();
     private org.apache.hadoop.hbase.client.Connection hbaseConnection;
     private HbaseUtils hbaseUtils;
 
+    // 调试日志开关
+    private static final boolean DEBUG_MODE = true;
+
+    public ProcessSpiltStreamToHBaseDimFunc(MapStateDescriptor<String, JSONObject> mapStageDesc) {
+        this.mapStateDescriptor = mapStageDesc;
+    }
+
     @Override
     public void open(Configuration parameters) throws Exception {
-        // 初始化MySQL连接
+        // 初始化MySQL连接，加载维度表配置
         Connection connection = JdbcUtils.getMySQLConnection(
                 ConfigUtils.getString("mysql.url"),
                 ConfigUtils.getString("mysql.user"),
                 ConfigUtils.getString("mysql.pwd"));
 
-        // 加载维度表配置
         String querySQL = "select * from realtime_v1_config.table_process_dim";
         List<TableProcessDim> tableProcessDims = JdbcUtils.queryList(connection, querySQL, TableProcessDim.class, true);
 
@@ -69,16 +75,11 @@ public class ProcessSpiltStreamToHBaseDimFunc extends BroadcastProcessFunction<J
                 TableName hbaseTableName = TableName.valueOf(tableName);
 
                 if (!admin.tableExists(hbaseTableName)) {
-                    // 创建表
+                    String columnFamily = dimConfig.getSinkFamily() != null ? dimConfig.getSinkFamily() : "info";
                     TableDescriptorBuilder tableBuilder = TableDescriptorBuilder.newBuilder(hbaseTableName);
-
-                    // 添加列族（使用配置中的列族，默认为"info"）
-                    String columnFamily = dimConfig.getSinkFamily() != null ?
-                            dimConfig.getSinkFamily() : "info";
                     tableBuilder.setColumnFamily(
                             ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(columnFamily)).build()
                     );
-
                     admin.createTable(tableBuilder.build());
                     System.out.println("Created HBase table: " + tableName);
                 }
@@ -86,53 +87,82 @@ public class ProcessSpiltStreamToHBaseDimFunc extends BroadcastProcessFunction<J
         }
     }
 
-    public ProcessSpiltStreamToHBaseDimFunc(MapStateDescriptor<String, JSONObject> mapStageDesc) {
-        this.mapStateDescriptor = mapStageDesc;
-    }
-
     @Override
-    public void processElement(JSONObject jsonObject, ReadOnlyContext readOnlyContext, Collector<JSONObject> collector) throws Exception {
-        ReadOnlyBroadcastState<String, JSONObject> broadcastState = readOnlyContext.getBroadcastState(mapStateDescriptor);
-        String tableName = jsonObject.getJSONObject("source").getString("table");
+    public void processElement(JSONObject jsonObject, ReadOnlyContext ctx, Collector<JSONObject> out) throws Exception {
+        if (jsonObject == null) {
+            System.err.println("processElement received null jsonObject");
+            return;
+        }
+
+        if (DEBUG_MODE) {
+            System.out.println("processElement input: " + jsonObject.toJSONString());
+        }
+
+        JSONObject sourceObj = jsonObject.getJSONObject("source");
+        if (sourceObj == null) {
+            System.err.println("Missing 'source' field in json: " + jsonObject.toJSONString());
+            return;
+        }
+
+        String tableName = sourceObj.getString("table");
+        if (tableName == null) {
+            System.err.println("Missing 'table' in source: " + jsonObject.toJSONString());
+            return;
+        }
+
+        ReadOnlyBroadcastState<String, JSONObject> broadcastState = ctx.getBroadcastState(mapStateDescriptor);
         JSONObject broadData = broadcastState.get(tableName);
 
-        // 获取表配置（优先使用广播状态中的配置）
         TableProcessDim tableConfig = null;
-        if (broadData != null) {
+        if (broadData != null && broadData.containsKey("after")) {
             tableConfig = broadData.getJSONObject("after").toJavaObject(TableProcessDim.class);
         } else {
             tableConfig = configMap.get(tableName);
         }
 
-        if (tableConfig != null && tableConfig.getSourceTable().equals(tableName)) {
-            if (!jsonObject.getString("op").equals("d")) {
-                JSONObject after = jsonObject.getJSONObject("after");
-                String sinkTableName = "default:" + tableConfig.getSinkTable();
+        if (tableConfig == null) {
+            System.err.println("No config found for table: " + tableName);
+            return;
+        }
 
-                // 确保表存在（双重检查）
-                ensureTableExists(sinkTableName, tableConfig.getSinkFamily());
+        // 删除操作直接跳过
+        if ("d".equals(jsonObject.getString("op"))) {
+            return;
+        }
 
-                String hbaseRowKey = after.getString(tableConfig.getSinkRowKey());
-                try (Table hbaseTable = hbaseConnection.getTable(TableName.valueOf(sinkTableName))) {
-                    Put put = new Put(Bytes.toBytes(MD5Hash.getMD5AsHex(hbaseRowKey.getBytes(StandardCharsets.UTF_8))));
+        JSONObject after = jsonObject.getJSONObject("after");
+        if (after == null) {
+            System.err.println("Missing 'after' data for table: " + tableName);
+            return;
+        }
 
-                    // 使用配置中的列族，默认为"info"
-                    String columnFamily = tableConfig.getSinkFamily() != null ?
-                            tableConfig.getSinkFamily() : "info";
+        String rowKeyField = tableConfig.getSinkRowKey();
+        String hbaseRowKey = rowKeyField != null ? after.getString(rowKeyField) : null;
+        if (hbaseRowKey == null) {
+            System.err.println("RowKey is null for table: " + tableName + ", rowKeyField=" + rowKeyField);
+            return;
+        }
 
-                    for (Map.Entry<String, Object> entry : after.entrySet()) {
-                        put.addColumn(
-                                Bytes.toBytes(columnFamily),
-                                Bytes.toBytes(entry.getKey()),
-                                Bytes.toBytes(String.valueOf(entry.getValue()))
-                        );
-                    }
+        String sinkTableName = "default:" + tableConfig.getSinkTable();
+        ensureTableExists(sinkTableName, tableConfig.getSinkFamily());
 
-                    hbaseTable.put(put);
-                    System.err.println("Successfully put to HBase: " + sinkTableName +
-                            ", rowKey: " + Arrays.toString(put.getRow()));
+        try (Table hbaseTable = hbaseConnection.getTable(TableName.valueOf(sinkTableName))) {
+            Put put = new Put(Bytes.toBytes(MD5Hash.getMD5AsHex(hbaseRowKey.getBytes(StandardCharsets.UTF_8))));
+            String columnFamily = tableConfig.getSinkFamily() != null ? tableConfig.getSinkFamily() : "info";
+
+            for (Map.Entry<String, Object> entry : after.entrySet()) {
+                if (entry.getValue() != null) {
+                    put.addColumn(
+                            Bytes.toBytes(columnFamily),
+                            Bytes.toBytes(entry.getKey()),
+                            Bytes.toBytes(entry.getValue().toString())
+                    );
                 }
             }
+
+            hbaseTable.put(put);
+            System.out.println("Successfully put to HBase: " + sinkTableName +
+                    ", rowKey: " + Arrays.toString(put.getRow()));
         }
     }
 
@@ -143,14 +173,11 @@ public class ProcessSpiltStreamToHBaseDimFunc extends BroadcastProcessFunction<J
         try (Admin admin = hbaseConnection.getAdmin()) {
             TableName hbaseTableName = TableName.valueOf(tableName);
             if (!admin.tableExists(hbaseTableName)) {
-                TableDescriptorBuilder tableBuilder = TableDescriptorBuilder.newBuilder(hbaseTableName);
-
-                // 使用传入的列族，如果为空则使用默认值"info"
                 String cf = columnFamily != null ? columnFamily : "info";
+                TableDescriptorBuilder tableBuilder = TableDescriptorBuilder.newBuilder(hbaseTableName);
                 tableBuilder.setColumnFamily(
                         ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(cf)).build()
                 );
-
                 admin.createTable(tableBuilder.build());
                 System.out.println("Created HBase table on demand: " + tableName);
             }
