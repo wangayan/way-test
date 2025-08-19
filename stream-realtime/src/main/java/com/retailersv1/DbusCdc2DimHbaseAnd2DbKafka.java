@@ -91,7 +91,7 @@ public class DbusCdc2DimHbaseAnd2DbKafka {
                 .name("dim_data_convert_json")
                 .setParallelism(1);
 
-        // // 清理 JSON 数据，只保留必要字段
+        // 清理 JSON 数据，只保留必要字段
         SingleOutputStreamOperator<JSONObject> cdcDbDimStreamMapCleanColumn = cdcDbDimStreamMap.map(s -> {
                     s.remove("source");
                     s.remove("transaction");
