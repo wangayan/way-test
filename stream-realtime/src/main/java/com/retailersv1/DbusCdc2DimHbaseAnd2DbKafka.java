@@ -23,6 +23,7 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
  * @Package com.retailer
  * @Date 2025/8/18 9:30
  * @description: MySQL CDC 数据同步到 HBase 维度表 + Kafka
+ * 数据采集与维度管理
  */
 public class DbusCdc2DimHbaseAnd2DbKafka {
 
@@ -44,20 +45,20 @@ public class DbusCdc2DimHbaseAnd2DbKafka {
         // 主数据源：业务数据库CDC
         MySqlSource<String> mySQLDbMainCdcSource = CdcSourceUtils.getMySQLCdcSource(
                 ConfigUtils.getString("mysql.database"),
-                "",                  //数据库中的所有表
+                "",
                 ConfigUtils.getString("mysql.user"),
                 ConfigUtils.getString("mysql.pwd"),
-                StartupOptions.initial()   //从最早位置开始
+                StartupOptions.initial(),
+                "5401-5500"   // 主库 Source 的 serverId 范围
         );
 
-
-        // 读取配置库的变化binlog
         MySqlSource<String> mySQLCdcDimConfSource = CdcSourceUtils.getMySQLCdcSource(
                 ConfigUtils.getString("mysql.databases.conf"),
                 "realtime_v1_config.table_process_dim",
                 ConfigUtils.getString("mysql.user"),
                 ConfigUtils.getString("mysql.pwd"),
-                StartupOptions.initial()
+                StartupOptions.initial(),
+                "5501-5600"   // 配置库 Source 的 serverId 范围
         );
 
 

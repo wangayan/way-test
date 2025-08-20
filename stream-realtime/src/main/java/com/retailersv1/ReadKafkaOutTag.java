@@ -27,6 +27,7 @@ import java.util.HashMap;
  * @Package com.stream.common
  * @Date 2025/8/15 17:19
  * @description: 读取kafka数据 分流
+ * 数据清洗与分流
  */
 public class ReadKafkaOutTag {
 
