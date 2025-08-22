@@ -1,11 +1,9 @@
 package com.stream.common.utils;
 
 import com.alibaba.fastjson.JSONObject;
+import lombok.Getter;
 import lombok.SneakyThrows;
-import org.apache.hadoop.hbase.CellUtil;
-import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.filter.FirstKeyOnlyFilter;
 import org.apache.hadoop.hbase.io.compress.Compression;
@@ -19,16 +17,21 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
 
-/**
- * @author han.zhou
- * @time: 2021/10/14 11:39
- * @className: HBaseUtils
- * @description HBase 工具类
- */
+
 public class HbaseUtils {
-    private Connection connection;
+    @Getter
+
+    private static Connection connection;
     private static final Logger LOG = LoggerFactory.getLogger(HbaseUtils.class.getName());
 
+    public static Connection getConnection() throws IOException {
+        if (connection == null || connection.isClosed()) {
+            org.apache.hadoop.conf.Configuration config = HBaseConfiguration.create();
+            config.set("hbase.zookeeper.quorum", "cdh01:2181,cdh02:2181,cdh03:2181");
+            connection = ConnectionFactory.createConnection(config);
+        }
+        return connection;
+    }
     public HbaseUtils(String zookeeper_quorum) throws Exception {
         org.apache.hadoop.conf.Configuration entries = HBaseConfiguration.create();
         entries.set(HConstants.ZOOKEEPER_QUORUM, zookeeper_quorum);
@@ -42,9 +45,43 @@ public class HbaseUtils {
 //        entries.set(HConstants.HBASE_REGIONSERVER_LEASE_PERIOD_KEY,"1200000");
         this.connection = ConnectionFactory.createConnection(entries);
     }
+    private static Connection staticConn = null;
 
-    public Connection getConnection() {
-        return connection;
+    static {
+        try {
+            org.apache.hadoop.conf.Configuration entries = HBaseConfiguration.create();
+            entries.set(HConstants.ZOOKEEPER_QUORUM, "cdh01,cdh02,cdh03");
+            entries.set(HConstants.HBASE_RPC_TIMEOUT_KEY,"1800000");
+            entries.set(HConstants.HBASE_CLIENT_SCANNER_TIMEOUT_PERIOD,"1800000");
+            entries.set(HConstants.HREGION_MEMSTORE_FLUSH_SIZE,"128M");
+            entries.set("hbase.incremental.wal","true");
+            entries.set(HConstants.HBASE_CLIENT_SCANNER_TIMEOUT_PERIOD,"3600000");
+
+            staticConn = ConnectionFactory.createConnection(entries);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 静态方法：查询 HBase 一行数据
+     */
+    public static JSONObject getRow(String tableName, String rowKey, String cf) throws IOException {
+        Table table = staticConn.getTable(TableName.valueOf(tableName));
+        Get get = new Get(Bytes.toBytes(rowKey));
+        Result result = table.get(get);
+
+        JSONObject json = new JSONObject();
+        for (Cell cell : result.listCells()) {
+            String family = Bytes.toString(CellUtil.cloneFamily(cell));
+            if (cf.equals(family)) {
+                String qualifier = Bytes.toString(CellUtil.cloneQualifier(cell));
+                String value = Bytes.toString(CellUtil.cloneValue(cell));
+                json.put(qualifier, value);
+            }
+        }
+        table.close();
+        return json;
     }
 
     public static void put(String rowKey, JSONObject value, BufferedMutator mutator) throws IOException {
@@ -212,7 +249,7 @@ public class HbaseUtils {
         HbaseUtils hbaseUtils = new HbaseUtils("cdh01,cdh02,cdh03");
 //        hbaseUtils.dropHbaseNameSpace("GMALL_FLINK_2207");
 //        System.err.println(hbaseUtils.tableIsExists("realtime_v2:dim_user_info"));
-        hbaseUtils.deleteTable("ns_zxn:dim_base_category1");
+        hbaseUtils.deleteTable("ns_chenming:dim_activity_info");
 //        hbaseUtils.getHbaseNameSpaceAllTablesList("realtime_v2");
     }
 }
