@@ -70,7 +70,7 @@ public class OdsLogBaseStreamApp {
         pageLogStream.sinkTo(KafkaUtils.buildKafkaSink("cdh01:9092", "realtime_page_log"));
         displayLogStream.sinkTo(KafkaUtils.buildKafkaSink("cdh01:9092", "realtime_display_log"));
         actionLogStream.sinkTo(KafkaUtils.buildKafkaSink("cdh01:9092", "realtime_action_log"));
-        errorLogStream.sinkTo(KafkaUtils.buildKafkaSink("cdh01:9092", "realtime_error_log"));
+        errorLogStream.sinkTo(KafkaUtils.buildKafkaSink("cdh01:9092", "realtime_err_log"));
 
         // 6. 提交执行
         env.execute();

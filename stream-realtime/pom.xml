@@ -23,6 +23,8 @@
             <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
         </repository>
     </repositories>
+
+
     <dependencies>
 
         <dependency>
@@ -39,7 +41,11 @@
         </dependency>
 
 
-
+        <dependency>
+            <groupId>ru.yandex.clickhouse</groupId>
+            <artifactId>clickhouse-jdbc</artifactId>
+            <version>0.3.2</version>
+        </dependency>
 
 
         <dependency>
