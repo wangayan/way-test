@@ -29,11 +29,11 @@
       <jdbc-url>jdbc:hive2://cdh01:10000</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
-    <data-source source="LOCAL" name="clickhouse" uuid="9f9040ad-2132-4510-861c-20cd4b01d894">
+    <data-source source="LOCAL" name="clickhouse" uuid="b7fec663-e1ce-4f4b-9dc9-54bb115f9831">
       <driver-ref>clickhouse</driver-ref>
       <synchronize>true</synchronize>
       <jdbc-driver>com.clickhouse.jdbc.ClickHouseDriver</jdbc-driver>
-      <jdbc-url>jdbc:clickhouse://cdh02:8123</jdbc-url>
+      <jdbc-url>jdbc:clickhouse://cdh01:8123</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
   </component>

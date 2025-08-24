@@ -60,7 +60,7 @@ public class ClickHouseUtil {
                 new JdbcConnectionOptions.JdbcConnectionOptionsBuilder()
                         .withUrl(Constant.CLICKHOUSE_URL)
                         .withDriverName(Constant.CLICKHOUSE_DRIVER)
-                        .withUsername("root")
+                        .withUsername("default")
                         .withPassword("")
                         .build()
         );

@@ -121,7 +121,7 @@ public class AdsTradeStatsWindowJob {
                         "LEFT JOIN payment_stats p ON o.stt = p.stt AND o.edt = p.edt AND o.sku_id = p.sku_id\n" +
                         "LEFT JOIN refund_stats r ON o.stt = r.stt AND o.edt = r.edt AND o.sku_id = r.sku_id"
         );
-        // tableEnv.toChangelogStream(resultStatsTable).print("enriched_trade_stats");
+        // tableEnv.toChangelogStreams(resultStatsTable).print("enriched_trade_stats");
 
         // 8) 分别写入 ClickHouse（明细指标 + 汇总指标）
         // 8.1 下单 sink
