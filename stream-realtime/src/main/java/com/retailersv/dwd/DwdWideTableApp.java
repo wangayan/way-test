@@ -1,4 +1,4 @@
-package com.retailersv;
+package com.retailersv.dwd;
 
 import com.alibaba.fastjson.JSONObject;
 import com.stream.common.utils.ConfigUtils;
@@ -19,7 +19,6 @@ import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.util.Collector;
 
 import java.io.Serializable;
-
 @Data
 class OrderWideDetail implements Serializable {
     private String orderDetailId;
