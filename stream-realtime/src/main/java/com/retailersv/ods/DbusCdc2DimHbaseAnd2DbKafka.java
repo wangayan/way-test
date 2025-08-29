@@ -66,7 +66,7 @@ public class DbusCdc2DimHbaseAnd2DbKafka {
         // ============= 2. 定义 MySQL CDC 源：配置数据库（维度表配置） =============
         MySqlSource<String> mySQLCdcDimConfSource = CdcSourceUtils.getMySQLCdcSource(
                 ConfigUtils.getString("mysql.databases.conf"), // 配置库
-                "realtime_v1_config.table_process_dim",        // 配置表
+                "gd02.table_process_dim",        // 配置表
                 ConfigUtils.getString("mysql.user"),
                 ConfigUtils.getString("mysql.pwd"),
                 StartupOptions.initial(),

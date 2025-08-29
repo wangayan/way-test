@@ -34,6 +34,7 @@ public class FlinkCDC2Kafka {
     private static final OutputTag<String> PRODUCT_INFO_TAG = new OutputTag<String>("product_info"){};
     private static final OutputTag<String> SHOP_INFO_TAG = new OutputTag<String>("shop_info"){};
     private static final OutputTag<String> CS_INFO_TAG = new OutputTag<String>("cs_info"){};
+    private static final OutputTag<String> DATE_INFO_TAG = new OutputTag<String>("date_info"){};
 
     public static void main(String[] args) throws Exception {
         // 1. Flink 环境
@@ -46,7 +47,7 @@ public class FlinkCDC2Kafka {
                 .port(3306)
                 .databaseList("gd02")
                 .tableList("gd02.consult_log", "gd02.order_info", "gd02.payment_info",
-                        "gd02.consult_order_link", "gd02.product_info", "gd02.shop_info", "gd02.cs_info")
+                        "gd02.consult_order_link", "gd02.product_info", "gd02.shop_info", "gd02.cs_info","gd02.date_info")
                 .username("root")
                 .password("123456")
                 .deserializer(new JsonDebeziumDeserializationSchema()) // 输出 JSON 格式
@@ -94,6 +95,9 @@ public class FlinkCDC2Kafka {
                             break;
                         case "cs_info":
                             ctx.output(CS_INFO_TAG, json.toString());
+                            break;
+                        case "date_info":
+                            ctx.output(DATE_INFO_TAG, json.toString());
                             break;
                         default:
                             out.collect(json.toString()); // 未知表输出到主流
@@ -152,6 +156,12 @@ public class FlinkCDC2Kafka {
                 props
         );
 
+        FlinkKafkaProducer<String> dateInfoSink = new FlinkKafkaProducer<>(
+                "ods_date_info",
+                new SimpleStringSchema(),
+                props
+        );
+
         // 7. 将侧输出流连接到对应的Kafka主题
         processedStream.getSideOutput(CONSULT_LOG_TAG).addSink(consultLogSink).name("Consult Log Sink");
         processedStream.getSideOutput(ORDER_INFO_TAG).addSink(orderInfoSink).name("Order Info Sink");
@@ -160,6 +170,7 @@ public class FlinkCDC2Kafka {
         processedStream.getSideOutput(PRODUCT_INFO_TAG).addSink(productInfoSink).name("Product Info Sink");
         processedStream.getSideOutput(SHOP_INFO_TAG).addSink(shopInfoSink).name("Shop Info Sink");
         processedStream.getSideOutput(CS_INFO_TAG).addSink(csInfoSink).name("CS Info Sink");
+        processedStream.getSideOutput(DATE_INFO_TAG).addSink(dateInfoSink).name("Date Info Sink");
 
         // 8. 启动作业
         env.execute("ODS MySQL CDC → Kafka");
