@@ -14,6 +14,9 @@ import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 import org.json.JSONObject;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Properties;
 
 /**
@@ -21,7 +24,7 @@ import java.util.Properties;
  * @Author wang.Ayan
  * @Date 2025/8/27 10:08
  * @Package com.gd.gd02.ods
- * @description: flinkCDC读取mysql中的数据，写到kafka
+ * @description: flinkCDC读取mysql中的数据，写到kafka，并统一时间格式
  * 工单编号：大数据-用户画像-02-服务主题店铺绩效
  */
 public class FlinkCDC2Kafka {
@@ -51,7 +54,7 @@ public class FlinkCDC2Kafka {
                 .username("root")
                 .password("123456")
                 .deserializer(new JsonDebeziumDeserializationSchema()) // 输出 JSON 格式
-                .startupOptions(StartupOptions.initial()) // 第一次跑先全量，再实时增量
+                .startupOptions(StartupOptions.initial())
                 .build();
 
         // 3. 获取 CDC 数据流
@@ -61,7 +64,7 @@ public class FlinkCDC2Kafka {
                 "MySQL CDC Source"
         );
 
-        // 4. 处理数据流，根据表名分流 - 使用 SingleOutputStreamOperator 而不是 DataStream
+        // 4. 处理数据流，根据表名分流
         SingleOutputStreamOperator<String> processedStream = mysqlStream.process(new ProcessFunction<String, String>() {
             @Override
             public void processElement(String value, Context ctx, Collector<String> out) throws Exception {
@@ -69,6 +72,17 @@ public class FlinkCDC2Kafka {
                     JSONObject json = new JSONObject(value);
                     JSONObject source = json.getJSONObject("source");
                     String table = source.getString("table");
+
+                    // 格式化 after 部分的所有 *_time 字段
+                    if (json.has("after") && !json.isNull("after")) {
+                        JSONObject after = json.getJSONObject("after");
+                        for (String key : after.keySet()) {
+                            if (key.endsWith("time")) {
+                                String rawTime = after.optString(key, null);
+                                after.put(key, formatTime(rawTime));
+                            }
+                        }
+                    }
 
                     // 添加处理时间戳
                     json.put("process_time", System.currentTimeMillis());
@@ -100,10 +114,9 @@ public class FlinkCDC2Kafka {
                             ctx.output(DATE_INFO_TAG, json.toString());
                             break;
                         default:
-                            out.collect(json.toString()); // 未知表输出到主流
+                            out.collect(json.toString());
                     }
                 } catch (Exception e) {
-                    // 异常处理，输出到主流
                     out.collect(value);
                 }
             }
@@ -114,65 +127,29 @@ public class FlinkCDC2Kafka {
         props.setProperty("bootstrap.servers", "cdh01:9092,cdh02:9092,cdh03:9092");
 
         // 6. 为每个表创建Kafka Sink
-        FlinkKafkaProducer<String> consultLogSink = new FlinkKafkaProducer<>(
-                "ods_consult_log",
-                new SimpleStringSchema(),
-                props
-        );
-
-        FlinkKafkaProducer<String> orderInfoSink = new FlinkKafkaProducer<>(
-                "ods_order_info",
-                new SimpleStringSchema(),
-                props
-        );
-
-        FlinkKafkaProducer<String> paymentInfoSink = new FlinkKafkaProducer<>(
-                "ods_payment_info",
-                new SimpleStringSchema(),
-                props
-        );
-
-        FlinkKafkaProducer<String> consultOrderLinkSink = new FlinkKafkaProducer<>(
-                "ods_consult_order_link",
-                new SimpleStringSchema(),
-                props
-        );
-
-        FlinkKafkaProducer<String> productInfoSink = new FlinkKafkaProducer<>(
-                "ods_product_info",
-                new SimpleStringSchema(),
-                props
-        );
-
-        FlinkKafkaProducer<String> shopInfoSink = new FlinkKafkaProducer<>(
-                "ods_shop_info",
-                new SimpleStringSchema(),
-                props
-        );
-
-        FlinkKafkaProducer<String> csInfoSink = new FlinkKafkaProducer<>(
-                "ods_cs_info",
-                new SimpleStringSchema(),
-                props
-        );
-
-        FlinkKafkaProducer<String> dateInfoSink = new FlinkKafkaProducer<>(
-                "ods_date_info",
-                new SimpleStringSchema(),
-                props
-        );
-
-        // 7. 将侧输出流连接到对应的Kafka主题
-        processedStream.getSideOutput(CONSULT_LOG_TAG).addSink(consultLogSink).name("Consult Log Sink");
-        processedStream.getSideOutput(ORDER_INFO_TAG).addSink(orderInfoSink).name("Order Info Sink");
-        processedStream.getSideOutput(PAYMENT_INFO_TAG).addSink(paymentInfoSink).name("Payment Info Sink");
-        processedStream.getSideOutput(CONSULT_ORDER_LINK_TAG).addSink(consultOrderLinkSink).name("Consult Order Link Sink");
-        processedStream.getSideOutput(PRODUCT_INFO_TAG).addSink(productInfoSink).name("Product Info Sink");
-        processedStream.getSideOutput(SHOP_INFO_TAG).addSink(shopInfoSink).name("Shop Info Sink");
-        processedStream.getSideOutput(CS_INFO_TAG).addSink(csInfoSink).name("CS Info Sink");
-        processedStream.getSideOutput(DATE_INFO_TAG).addSink(dateInfoSink).name("Date Info Sink");
+        processedStream.getSideOutput(CONSULT_LOG_TAG).addSink(new FlinkKafkaProducer<>("ods_consult_log", new SimpleStringSchema(), props)).name("Consult Log Sink");
+        processedStream.getSideOutput(ORDER_INFO_TAG).addSink(new FlinkKafkaProducer<>("ods_order_info", new SimpleStringSchema(), props)).name("Order Info Sink");
+        processedStream.getSideOutput(PAYMENT_INFO_TAG).addSink(new FlinkKafkaProducer<>("ods_payment_info", new SimpleStringSchema(), props)).name("Payment Info Sink");
+        processedStream.getSideOutput(CONSULT_ORDER_LINK_TAG).addSink(new FlinkKafkaProducer<>("ods_consult_order_link", new SimpleStringSchema(), props)).name("Consult Order Link Sink");
+        processedStream.getSideOutput(PRODUCT_INFO_TAG).addSink(new FlinkKafkaProducer<>("ods_product_info", new SimpleStringSchema(), props)).name("Product Info Sink");
+        processedStream.getSideOutput(SHOP_INFO_TAG).addSink(new FlinkKafkaProducer<>("ods_shop_info", new SimpleStringSchema(), props)).name("Shop Info Sink");
+        processedStream.getSideOutput(CS_INFO_TAG).addSink(new FlinkKafkaProducer<>("ods_cs_info", new SimpleStringSchema(), props)).name("CS Info Sink");
+        processedStream.getSideOutput(DATE_INFO_TAG).addSink(new FlinkKafkaProducer<>("ods_date_info", new SimpleStringSchema(), props)).name("Date Info Sink");
 
         // 8. 启动作业
         env.execute("ODS MySQL CDC → Kafka");
+    }
+
+    // 时间格式化工具：ISO8601 → yyyy-MM-dd HH:mm:ss         (2025-08-28T09:26:55Z)
+    private static String formatTime(String raw) {
+        if (raw == null) return null;
+        try {
+            Instant instant = Instant.parse(raw);
+            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                    .withZone(ZoneId.systemDefault());
+            return fmt.format(instant);
+        } catch (Exception e) {
+            return raw;
+        }
     }
 }

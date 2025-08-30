@@ -12,6 +12,9 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Properties;
 
 /**
@@ -44,97 +47,65 @@ public class DwdEcomEventApp {
 
         // 1. 清洗咨询日志
         SingleOutputStreamOperator<String> cleanedConsultLog = consultLogStream
-                .map(new MapFunction<String, JSONObject>() {
-                    @Override
-                    public JSONObject map(String value) throws Exception {
-                        return JSON.parseObject(value);
-                    }
-                })
+                .map((MapFunction<String, JSONObject>) JSON::parseObject)
                 .filter(obj -> obj.getJSONObject("after") != null)
-                .map(new MapFunction<JSONObject, String>() {
-                    @Override
-                    public String map(JSONObject obj) throws Exception {
-                        JSONObject after = obj.getJSONObject("after");
-                        JSONObject out = new JSONObject();
-                        out.put("consult_id", after.getString("consult_id"));
-                        out.put("buyer_id", after.getString("buyer_id"));
-                        out.put("product_id", after.getString("product_id"));
-                        out.put("shop_id", after.getString("shop_id"));
-                        out.put("cs_id", after.getString("cs_id"));
-                        out.put("consult_time", after.getString("consult_time"));
-                        out.put("event_type", "consult");
-                        return out.toJSONString(); // 直接返回字符串
-                    }
+                .map((MapFunction<JSONObject, String>) obj -> {
+                    JSONObject after = obj.getJSONObject("after");
+                    JSONObject out = new JSONObject();
+                    out.put("consult_id", after.getString("consult_id"));
+                    out.put("buyer_id", after.getString("buyer_id"));
+                    out.put("product_id", after.getString("product_id"));
+                    out.put("shop_id", after.getString("shop_id"));
+                    out.put("cs_id", after.getString("cs_id"));
+                    out.put("consult_time", formatTime(after.getString("consult_time")));
+                    out.put("event_type", "consult");
+                    return out.toJSONString();
                 });
 
         // 2. 清洗订单信息
         SingleOutputStreamOperator<String> cleanedOrderInfo = orderInfoStream
-                .map(new MapFunction<String, JSONObject>() {
-                    @Override
-                    public JSONObject map(String value) throws Exception {
-                        return JSON.parseObject(value);
-                    }
-                })
+                .map((MapFunction<String, JSONObject>) JSON::parseObject)
                 .filter(obj -> obj.getJSONObject("after") != null)
-                .map(new MapFunction<JSONObject, String>() {
-                    @Override
-                    public String map(JSONObject obj) throws Exception {
-                        JSONObject after = obj.getJSONObject("after");
-                        JSONObject out = new JSONObject();
-                        out.put("order_id", after.getString("order_id"));
-                        out.put("buyer_id", after.getString("buyer_id"));
-                        out.put("product_id", after.getString("product_id"));
-                        out.put("shop_id", after.getString("shop_id"));
-                        out.put("order_time", after.getString("order_time"));
-                        out.put("amount", after.getBigDecimal("amount"));
-                        out.put("event_type", "order");
-                        return out.toJSONString(); // 直接返回字符串
-                    }
+                .map((MapFunction<JSONObject, String>) obj -> {
+                    JSONObject after = obj.getJSONObject("after");
+                    JSONObject out = new JSONObject();
+                    out.put("order_id", after.getString("order_id"));
+                    out.put("buyer_id", after.getString("buyer_id"));
+                    out.put("product_id", after.getString("product_id"));
+                    out.put("shop_id", after.getString("shop_id"));
+                    out.put("order_time", formatTime(after.getString("order_time")));
+                    out.put("amount", after.getBigDecimal("amount"));
+                    out.put("event_type", "order");
+                    return out.toJSONString();
                 });
 
         // 3. 清洗支付信息
         SingleOutputStreamOperator<String> cleanedPaymentInfo = paymentInfoStream
-                .map(new MapFunction<String, JSONObject>() {
-                    @Override
-                    public JSONObject map(String value) throws Exception {
-                        return JSON.parseObject(value);
-                    }
-                })
+                .map((MapFunction<String, JSONObject>) JSON::parseObject)
                 .filter(obj -> obj.getJSONObject("after") != null)
-                .map(new MapFunction<JSONObject, String>() {
-                    @Override
-                    public String map(JSONObject obj) throws Exception {
-                        JSONObject after = obj.getJSONObject("after");
-                        JSONObject out = new JSONObject();
-                        out.put("payment_id", after.getString("payment_id"));
-                        out.put("order_id", after.getString("order_id"));
-                        out.put("buyer_id", after.getString("buyer_id"));
-                        out.put("payment_time", after.getString("payment_time"));
-                        out.put("amount", after.getBigDecimal("amount"));
-                        out.put("event_type", "payment");
-                        return out.toJSONString(); // 直接返回字符串
-                    }
+                .map((MapFunction<JSONObject, String>) obj -> {
+                    JSONObject after = obj.getJSONObject("after");
+                    JSONObject out = new JSONObject();
+                    out.put("payment_id", after.getString("payment_id"));
+                    out.put("order_id", after.getString("order_id"));
+                    out.put("buyer_id", after.getString("buyer_id"));
+                    out.put("payment_time", formatTime(after.getString("payment_time")));
+                    out.put("amount", after.getBigDecimal("amount"));
+                    out.put("event_type", "payment");
+                    return out.toJSONString();
                 });
 
         // 4. 清洗咨询订单关联表
         SingleOutputStreamOperator<String> cleanedConsultOrderLink = consultOrderLinkStream
-                .map(new MapFunction<String, JSONObject>() {
-                    @Override
-                    public JSONObject map(String value) throws Exception {
-                        return JSON.parseObject(value);
-                    }
-                })
+                .map((MapFunction<String, JSONObject>) JSON::parseObject)
                 .filter(obj -> obj.getJSONObject("after") != null)
-                .map(new MapFunction<JSONObject, String>() {
-                    @Override
-                    public String map(JSONObject obj) throws Exception {
-                        JSONObject after = obj.getJSONObject("after");
-                        JSONObject out = new JSONObject();
-                        out.put("consult_id", after.getString("consult_id"));
-                        out.put("order_id", after.getString("order_id"));
-                        out.put("link_time", after.getString("link_time"));
-                        return out.toJSONString(); // 直接返回字符串
-                    }
+                .map((MapFunction<JSONObject, String>) obj -> {
+                    JSONObject after = obj.getJSONObject("after");
+                    JSONObject out = new JSONObject();
+                    out.put("consult_id", after.getString("consult_id"));
+                    out.put("order_id", after.getString("order_id"));
+                    out.put("link_time", formatTime(after.getString("link_time")));
+                    return out.toJSONString();
                 });
 
         // 5. 将清洗后的数据写入 Kafka
@@ -181,5 +152,18 @@ public class DwdEcomEventApp {
                 .setStartingOffsets(OffsetsInitializer.earliest())
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
+    }
+
+    // 时间格式化工具：ISO8601 → yyyy-MM-dd HH:mm:ss
+    private static String formatTime(String raw) {
+        if (raw == null) return null;
+        try {
+            Instant instant = Instant.parse(raw);
+            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                    .withZone(ZoneId.systemDefault());
+            return fmt.format(instant);
+        } catch (Exception e) {
+            return raw; // 如果解析失败，保留原样
+        }
     }
 }
